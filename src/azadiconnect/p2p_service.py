@@ -2,6 +2,9 @@
 P2PService - Low-level socket operations for peer-to-peer messaging over Tor.
 Handles both server (receiving) and client (sending) operations.
 Supports text messages and file transfers via Base64 encoding.
+
+Note: On iOS, pysocks is unavailable due to sandbox restrictions.
+The SOCKS_AVAILABLE flag indicates whether SOCKS5 proxy can be used.
 """
 import asyncio
 import json
@@ -10,6 +13,14 @@ import base64
 from typing import Callable, Optional
 from dataclasses import dataclass
 from pathlib import Path
+
+# Import guard for socks (not available on iOS)
+try:
+    import socks
+    SOCKS_AVAILABLE = True
+except ImportError:
+    SOCKS_AVAILABLE = False
+    print("[P2PService] socks library not available - P2P disabled")
 
 
 @dataclass
@@ -34,6 +45,11 @@ class P2PService:
     - Text: {"type": "text", "text": "...", "sender": "..."}
     - File: {"type": "file", "name": "...", "content": "base64...", "sender": "..."}
     """
+    
+    @staticmethod
+    def is_available() -> bool:
+        """Check if P2P networking is available on this platform."""
+        return SOCKS_AVAILABLE
     
     def __init__(self, local_port: int, socks_port: int, 
                  msg_callback: Callable[[P2PMessage], None],
@@ -215,8 +231,12 @@ class P2PService:
         Returns:
             True if message was sent successfully
         """
+        if not SOCKS_AVAILABLE:
+            print("[P2PService] Cannot send - socks library not available")
+            return False
+        
         try:
-            import socks
+            # socks is imported at module level if available
             
             # Clean up address
             address = onion_address.strip()

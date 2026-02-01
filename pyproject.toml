@@ -39,8 +39,9 @@ Features end-to-end encryption, Tor integration, and bilingual (English/Farsi) s
 # icon = "icons/azadiconnect"
 sources = ["src/azadiconnect"]
 test_sources = ["tests"]
-# Common requirements empty to avoid platform conflicts
-requires = ["cryptography", "stem", "pysocks"]
+# Common requirements - cryptography only (has iOS wheels)
+# stem/pysocks are platform-specific (desktop only, no iOS)
+requires = ["cryptography"]
 
 # =============================================================================
 # Linux Configuration
@@ -54,6 +55,10 @@ requires = [
     # 1. Must be >= 3.46.0 to satisfy Toga 0.4.4
     # 2. Must be < 3.48.0 to avoid 'girepository-2.0' error
     "pygobject>=3.46.0,<3.48.0",
+    
+    # Tor dependencies (desktop only)
+    "stem",
+    "pysocks",
 ]
 system_requires = [
     "libgirepository1.0-dev",
@@ -77,26 +82,43 @@ system_requires = [
 # Windows Configuration
 # =============================================================================
 [tool.briefcase.app.azadiconnect.windows]
-requires = ["toga-winforms>=0.4.0"]
+requires = [
+    "toga-winforms>=0.4.0",
+    # Tor dependencies (desktop only)
+    "stem",
+    "pysocks",
+]
 
 # =============================================================================
 # macOS Configuration
 # =============================================================================
 [tool.briefcase.app.azadiconnect.macOS]
-requires = ["toga-cocoa>=0.4.0"]
+requires = [
+    "toga-cocoa>=0.4.0",
+    # Tor dependencies (desktop only)
+    "stem",
+    "pysocks",
+]
 universal_build = true
 
 # =============================================================================
 # iOS Configuration
 # =============================================================================
 [tool.briefcase.app.azadiconnect.iOS]
+# iOS: NO stem/pysocks - cannot spawn Tor subprocess in iOS sandbox
 requires = ["toga-iOS>=0.4.0"]
 
 # =============================================================================
 # Android Configuration
 # =============================================================================
 [tool.briefcase.app.azadiconnect.android]
-requires = ["toga-android>=0.4.0"]
+# Android: Include Tor deps for future Orbot integration
+requires = [
+    "toga-android>=0.4.0",
+    # Note: May need Orbot for actual Tor functionality
+    "stem",
+    "pysocks",
+]
 base_theme = "Theme.MaterialComponents.Light.DarkActionBar"
 build_gradle_dependencies = ["com.google.android.material:material:1.11.0"]
 splash_background_color = "#FFFFFF"

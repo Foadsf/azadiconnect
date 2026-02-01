@@ -56,9 +56,17 @@ class NetworkManager:
         self._app = app
         self._data_path = Path(data_path)
         self._downloads_path = self._data_path / "downloads"
-        self._mock_mode = False
         self._state = ConnectionState.DISCONNECTED
         self._status_message = "Disconnected"
+        
+        # Check platform capability - auto-enable mock mode if Tor unavailable
+        if not TorManager.is_available() or not P2PService.is_available():
+            self._mock_mode = True
+            self._platform_limited = True
+            print("[NetworkManager] Platform limited (iOS?) - Mock mode enabled")
+        else:
+            self._mock_mode = False
+            self._platform_limited = False
         
         # Create downloads directory
         self._downloads_path.mkdir(parents=True, exist_ok=True)
@@ -190,6 +198,14 @@ class NetworkManager:
     
     def connect(self) -> None:
         """Start the network connection."""
+        # On platform-limited devices (iOS), go directly to mock mode
+        if self._platform_limited:
+            self._set_state(
+                ConnectionState.READY,
+                "Mock Mode (iOS - Tor unavailable)"
+            )
+            return
+        
         self._set_state(ConnectionState.STARTING_TOR, "Initializing Tor...")
         self._tor_manager.start()
     
@@ -209,6 +225,10 @@ class NetworkManager:
         elif self._mock_mode:
             return "mock-address.onion"
         return None
+    
+    def is_platform_limited(self) -> bool:
+        """Check if running on a platform without Tor support (iOS)."""
+        return self._platform_limited
     
     def get_connection_status(self) -> str:
         """Get current connection status message."""

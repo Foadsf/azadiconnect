@@ -1,6 +1,9 @@
 """
 TorManager - Handles Tor process lifecycle and hidden service creation.
 Uses stem library to control the Tor daemon.
+
+Note: On iOS/some mobile platforms, stem/Tor are unavailable due to sandbox
+restrictions. The TOR_AVAILABLE flag indicates whether Tor can be used.
 """
 import os
 import shutil
@@ -8,6 +11,15 @@ import threading
 from pathlib import Path
 from typing import Callable, Optional
 from enum import Enum, auto
+
+# Import guard for stem (not available on iOS)
+try:
+    import stem.process
+    from stem.control import Controller
+    TOR_AVAILABLE = True
+except ImportError:
+    TOR_AVAILABLE = False
+    print("[TorManager] stem library not available - Tor disabled")
 
 
 class TorState(Enum):
@@ -105,6 +117,11 @@ class TorManager:
         
         return None
     
+    @staticmethod
+    def is_available() -> bool:
+        """Check if Tor is available on this platform."""
+        return TOR_AVAILABLE
+    
     def get_state(self) -> TorState:
         """Get current Tor state."""
         return self._state
@@ -130,6 +147,13 @@ class TorManager:
         Start Tor in a background thread.
         Progress will be reported via callbacks.
         """
+        if not TOR_AVAILABLE:
+            self._set_state(
+                TorState.ERROR,
+                "Tor unavailable on this platform (iOS sandbox)"
+            )
+            return
+        
         thread = threading.Thread(target=self._start_tor_sync, daemon=True)
         thread.start()
     
