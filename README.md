@@ -44,7 +44,25 @@ brew install tor
 # Extract, find tor.exe in: Tor Browser\Browser\TorBrowser\Tor\tor.exe
 ```
 
-**2. Install Snowflake (Optional — for censored regions):**
+# Extract, find tor.exe in: Tor Browser\Browser\TorBrowser\Tor\tor.exe
+```
+
+**2. Linux AppImage Requirements:**
+
+The AppImage is portable but requires system GTK libraries. If you see a crash on launch:
+
+```bash
+# Ubuntu/Debian/Mint
+sudo apt install gir1.2-gtk-3.0 libgirepository-1.0-1
+
+# Fedora
+sudo dnf install gtk3 gobject-introspection
+
+# Arch
+sudo pacman -S gtk3 gobject-introspection
+```
+
+**3. Install Snowflake (Optional — for censored regions):**
 
 Download from: https://gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/snowflake/-/releases
 
