@@ -1,0 +1,12 @@
+{
+    "rtl": true,
+    "app_name": "آزادی‌کانکت",
+    "tab_chats": "گفتگوها",
+    "tab_settings": "تنظیمات",
+    "settings_language": "زبان",
+    "settings_language_desc": "انتخاب زبان رابط",
+    "no_chats": "هنوز گفتگویی وجود ندارد",
+    "add_contact": "افزودن مخاطب",
+    "english": "English",
+    "farsi": "فارسی"
+}

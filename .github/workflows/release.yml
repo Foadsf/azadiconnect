@@ -1,0 +1,367 @@
+# =============================================================================
+# Cross-Platform Release Workflow for BeeWare/Toga Application
+# =============================================================================
+# Triggers: GitHub Release creation or version tag push (v*)
+# Builds: Windows MSI, Linux AppImage, macOS DMG, Android APK, iOS Xcode
+# =============================================================================
+
+name: Release
+
+on:
+  release:
+    types: [created]
+  push:
+    tags:
+      - 'v*'
+
+env:
+  PYTHON_VERSION: '3.12'
+  BRIEFCASE_VERSION: '0.3.21'
+
+jobs:
+  # ===========================================================================
+  # Linux AppImage Build
+  # ===========================================================================
+  build-linux:
+    name: Build Linux AppImage
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            python3-dev \
+            libgirepository1.0-dev \
+            libcairo2-dev \
+            gir1.2-gtk-3.0 \
+            pkg-config \
+            libfuse2 \
+            fuse
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Briefcase
+        run: |
+          python -m pip install --upgrade pip
+          pip install briefcase==${{ env.BRIEFCASE_VERSION }}
+
+      - name: Build AppImage
+        run: |
+          briefcase create linux appimage
+          briefcase build linux appimage
+          briefcase package linux appimage
+
+      - name: Find and rename artifact
+        id: artifact
+        run: |
+          APPIMAGE=$(find dist -name "*.AppImage" -type f | head -1)
+          if [ -n "$APPIMAGE" ]; then
+            NEWNAME="HelloWorld-linux-x86_64.AppImage"
+            cp "$APPIMAGE" "dist/$NEWNAME"
+            echo "path=dist/$NEWNAME" >> $GITHUB_OUTPUT
+            echo "name=$NEWNAME" >> $GITHUB_OUTPUT
+          else
+            echo "No AppImage found!"
+            exit 1
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-appimage
+          path: ${{ steps.artifact.outputs.path }}
+          retention-days: 5
+
+  # ===========================================================================
+  # Windows MSI Build
+  # ===========================================================================
+  build-windows:
+    name: Build Windows MSI
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Briefcase
+        run: |
+          python -m pip install --upgrade pip
+          pip install briefcase==${{ env.BRIEFCASE_VERSION }}
+
+      - name: Build MSI
+        run: |
+          briefcase create windows app
+          briefcase build windows app
+          briefcase package windows app
+        # NOTE: For signed MSI, add: --adhoc-sign or configure certificate
+        # See "Secrets" section at bottom of this file
+
+      - name: Find and rename artifact
+        id: artifact
+        shell: pwsh
+        run: |
+          $msi = Get-ChildItem -Path dist -Filter "*.msi" -Recurse | Select-Object -First 1
+          if ($msi) {
+            $newName = "HelloWorld-windows-x64.msi"
+            Copy-Item $msi.FullName -Destination "dist\$newName"
+            "path=dist\$newName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            "name=$newName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          } else {
+            Write-Error "No MSI found!"
+            exit 1
+          }
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-msi
+          path: ${{ steps.artifact.outputs.path }}
+          retention-days: 5
+
+  # ===========================================================================
+  # macOS DMG Build (Ad-hoc signed - will NOT pass Gatekeeper)
+  # ===========================================================================
+  build-macos:
+    name: Build macOS App
+    runs-on: macos-latest # Apple Silicon runner (macOS 14+)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install briefcase==${{ env.BRIEFCASE_VERSION }}
+      
+      # FIX: Check for certificate existence and output boolean
+      - name: Check for signing certificate
+        id: check_cert
+        run: |
+          if [ -n "${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE }}" ]; then
+            echo "has_cert=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_cert=false" >> $GITHUB_OUTPUT
+          fi
+      
+      # FIX: Import certificate manually (apple-actions was deprecated)
+      - name: Import Apple Developer ID certificate (Optional)
+        if: steps.check_cert.outputs.has_cert == 'true'
+        env:
+          CERTIFICATE_DATA: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          # Create a temporary keychain
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          # Import certificate
+          echo "$CERTIFICATE_DATA" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+      
+      - name: Build macOS App
+        env:
+          HAS_CERT: ${{ steps.check_cert.outputs.has_cert }}
+          DEVELOPER_ID: ${{ secrets.APPLE_DEVELOPER_ID }}
+        run: |
+          briefcase create macOS app
+          briefcase build macOS app
+          
+          # If you have a Developer ID certificate for distribution:
+          if [ "$HAS_CERT" == "true" ] && [ -n "$DEVELOPER_ID" ]; then
+            echo "Signing with Identity: $DEVELOPER_ID"
+            briefcase package macOS app --identity "$DEVELOPER_ID"
+          else
+            # Ad-hoc signing (works only on build machine or with Gatekeeper disabled)
+            echo "Ad-hoc signing..."
+            briefcase package macOS app --adhoc-sign
+          fi
+      - id: artifact
+        run: |
+          DMG=$(find dist -name "*.dmg" | head -1)
+          [ -z "$DMG" ] && echo "No DMG found" && exit 1
+          NEWNAME="HelloWorld-macOS-universal.dmg"
+          cp "$DMG" "dist/$NEWNAME"
+          echo "path=dist/$NEWNAME" >> $GITHUB_OUTPUT
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: ${{ steps.artifact.outputs.path }}
+          retention-days: 5
+
+  # ===========================================================================
+  # Android APK Build (Debug - no signing required)
+  # ===========================================================================
+  build-android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Briefcase
+        run: |
+          python -m pip install --upgrade pip
+          pip install briefcase==${{ env.BRIEFCASE_VERSION }}
+
+      - name: Build Debug APK
+        run: |
+          briefcase create android
+          briefcase build android
+          # Debug build - no signing secrets needed
+          briefcase package android
+
+      - name: Find and rename artifact
+        id: artifact
+        run: |
+          APK=$(find . -path "*/build/outputs/apk/*/*.apk" -o -name "*.apk" -path "*/dist/*" 2>/dev/null | head -1)
+          if [ -z "$APK" ]; then
+            APK=$(find . -name "*.apk" -type f | head -1)
+          fi
+          if [ -n "$APK" ]; then
+            NEWNAME="HelloWorld-android-debug.apk"
+            mkdir -p dist
+            cp "$APK" "dist/$NEWNAME"
+            echo "path=dist/$NEWNAME" >> $GITHUB_OUTPUT
+            echo "name=$NEWNAME" >> $GITHUB_OUTPUT
+          else
+            echo "No APK found!"
+            find . -name "*.apk" -type f 2>/dev/null || true
+            exit 1
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: ${{ steps.artifact.outputs.path }}
+          retention-days: 5
+
+  # ===========================================================================
+  # iOS Build (Xcode project only - requires Apple Developer for IPA)
+  # ===========================================================================
+  build-ios:
+    name: Build iOS App
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install briefcase==${{ env.BRIEFCASE_VERSION }}
+      
+      # iOS requires Xcode command line tools (pre-installed on macos-latest)
+      - run: xcode-select -p
+      
+      - name: Build iOS App
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          briefcase create iOS
+          briefcase build iOS
+          
+          # Without Apple Developer Program: Create .xcarchive only
+          # With Developer Program: Uncomment packaging section below
+          if [ -z "$TEAM_ID" ]; then
+            echo "Building only (no signing). Create .ipa manually in Xcode or set up secrets."
+            # Archive the build directory for manual signing
+            mkdir -p dist
+            tar -czf dist/HelloWorld-iOS-build.tar.gz build/helloworld/ios/xcode/
+          else
+            # Production build with signing (requires provisioning profile)
+            briefcase package iOS --team-id "$TEAM_ID"
+          fi
+      - id: artifact
+        run: |
+          if [ -f "dist/HelloWorld-iOS-build.tar.gz" ]; then
+            echo "path=dist/HelloWorld-iOS-build.tar.gz" >> $GITHUB_OUTPUT
+          else
+            IPA=$(find dist -name "*.ipa" | head -1)
+            echo "path=$IPA" >> $GITHUB_OUTPUT
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-build
+          path: ${{ steps.artifact.outputs.path }}
+          retention-days: 5
+
+  # ===========================================================================
+  # Upload all artifacts to GitHub Release
+  # ===========================================================================
+  release:
+    name: Upload Release Assets
+    needs: [build-linux, build-windows, build-android, build-macos, build-ios]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Display downloaded files
+        run: find artifacts -type f -ls
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/linux-appimage/*.AppImage
+            artifacts/windows-msi/*.msi
+            artifacts/macos-dmg/*.dmg
+            artifacts/android-apk/*.apk
+            artifacts/ios-build/*.tar.gz
+            artifacts/ios-build/*.ipa
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+# =============================================================================
+# SECRETS REFERENCE FOR PRODUCTION SIGNING
+# =============================================================================
+#
+# To enable properly signed builds, add these secrets to your repository:
+# (Settings > Secrets and variables > Actions > New repository secret)
+#
+# ┌─────────────────────────────────────────────────────────────────────────────┐
+# │ APPLE (macOS + iOS)                                                         │
+# ├─────────────────────────────────────────────────────────────────────────────┤
+# │ APPLE_DEVELOPER_ID_CERTIFICATE      - Base64-encoded .p12 certificate       │
+# │ APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD - Password for the .p12             │
+# │ APPLE_DEVELOPER_ID                  - Your Developer ID string              │
+# │ KEYCHAIN_PASSWORD                   - Random password for CI keychain       │
+# │ APPLE_TEAM_ID                       - Your Apple Developer Team ID          │
+# │                                                                             │
+# │ To export certificate:                                                      │
+# │   1. Open Keychain Access on macOS                                          │
+# │   2. Export "Developer ID Application" cert as .p12                         │
+# │   3. base64 -i certificate.p12 | pbcopy                                     │
+# │   4. Paste into APPLE_DEVELOPER_ID_CERTIFICATE secret                       │
+# └─────────────────────────────────────────────────────────────────────────────┘

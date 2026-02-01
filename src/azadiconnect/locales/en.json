@@ -1,0 +1,11 @@
+{
+  "app_name": "AzadiConnect",
+  "tab_chats": "Chats",
+  "tab_settings": "Settings",
+  "settings_language": "Language",
+  "settings_language_desc": "Select interface language",
+  "no_chats": "No conversations yet",
+  "add_contact": "Add Contact",
+  "english": "English",
+  "farsi": "فارسی"
+}
