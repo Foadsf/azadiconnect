@@ -16,9 +16,12 @@ from typing import Callable, Optional
 from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
+from datetime import datetime, timezone
 
 from .tor_manager import TorManager, TorState
 from .p2p_service import P2PService, P2PMessage
+from .db import DatabaseManager
+from .message import Message
 
 
 class ConnectionState(Enum):
@@ -29,17 +32,6 @@ class ConnectionState(Enum):
     STARTING_P2P = auto()
     READY = auto()
     ERROR = auto()
-
-
-@dataclass
-class Message:
-    """Represents a chat message."""
-    text: str
-    sender_address: str
-    is_encrypted: bool = False
-    is_file: bool = False
-    filename: Optional[str] = None
-    timestamp: Optional[float] = None
 
 
 class NetworkManager:
@@ -58,6 +50,13 @@ class NetworkManager:
         self._downloads_path = self._data_path / "downloads"
         self._state = ConnectionState.DISCONNECTED
         self._status_message = "Disconnected"
+        
+        # Database
+        self.db = DatabaseManager(self._data_path)
+        
+        # Managers (injected via setters)
+        self._contact_manager = None
+        self._crypto_manager = None
         
         # Check platform capability - auto-enable mock mode if Tor unavailable
         if not TorManager.is_available() or not P2PService.is_available():
@@ -83,14 +82,21 @@ class NetworkManager:
         # Callbacks
         self._on_message_received: Optional[Callable[[Message], None]] = None
         self._on_status_change: Optional[Callable[[ConnectionState, str], None]] = None
-        self._contact_manager = None
+        
+        # Message log
+        self._message_log: list[Message] = []
 
     def set_contact_manager(self, contact_manager):
         """Set the contact manager for identity lookups."""
         self._contact_manager = contact_manager
+
+    def set_crypto_manager(self, crypto_manager):
+        """Set the crypto manager for encryption."""
+        self._crypto_manager = crypto_manager
         
-        # Message log
-        self._message_log: list[Message] = []
+    async def initialize_db(self):
+        """Initialize the database."""
+        await self.db.init_db()
     
     def get_downloads_path(self) -> Path:
         """Get the downloads directory path."""
@@ -176,16 +182,35 @@ class NetworkManager:
         """Handle incoming P2P messages."""
         # Convert to Message object
         is_file = p2p_msg.msg_type == 'file'
+        text = p2p_msg.text
+        is_encrypted = False
+        
+        # Handle Encrypted Messages
+        if p2p_msg.msg_type == 'encrypted' and self._crypto_manager:
+            try:
+                import json
+                enc_payload = json.loads(text)
+                text = self._crypto_manager.decrypt_from_peer(enc_payload)
+                is_encrypted = True
+                print(f"[NetworkManager] Decrypted message from {p2p_msg.sender}")
+            except Exception as e:
+                print(f"[NetworkManager] Decryption failed: {e}")
+                text = "[Encrypted Message - Key Mismatch]"
         
         message = Message(
-            text=p2p_msg.text,
+            text=text,
             sender_address=p2p_msg.sender,
-            is_encrypted=False,
+            is_encrypted=is_encrypted,
             is_file=is_file,
-            filename=p2p_msg.filename if is_file else None
+            filename=p2p_msg.filename if is_file else None,
+            timestamp=datetime.now(timezone.utc).timestamp(),
+            is_outgoing=False
         )
         
         self._message_log.append(message)
+        
+        # Persist to DB
+        asyncio.create_task(self.db.add_message(message, p2p_msg.sender, is_outgoing=False))
         
         # Trigger the UI callback
         if self._on_message_received:
@@ -274,17 +299,29 @@ class NetworkManager:
             print("[NetworkManager] P2P service not available")
             return False
             
-        # Check contact for encryption key (Stub)
-        if self._contact_manager:
+        payload_type = 'text'
+        content = message
+        
+        # Check contact for encryption key
+        if self._contact_manager and self._crypto_manager:
             contact = self._contact_manager.get_contact(peer_address)
             if contact and contact.public_key:
-                # TODO: Encrypt payload with peer.public_key
-                # print(f"[NetworkManager] Found public key for {contact.name}, ready for encryption")
-                pass
+                try:
+                    # Encrypt payload
+                    peer_pub_pem = contact.public_key.encode('utf-8')
+                    enc_data = self._crypto_manager.encrypt_for_peer(message, peer_pub_pem)
+                    
+                    # Serialize encryption payload to JSON string for the 'text' field
+                    import json
+                    content = json.dumps(enc_data)
+                    payload_type = 'encrypted'
+                    print(f"[NetworkManager] Encrypted message for {contact.name}")
+                except Exception as e:
+                    print(f"[NetworkManager] Encryption failed: {e}")
         
         payload = {
-            'type': 'text',
-            'text': message,
+            'type': payload_type,
+            'text': content,
             'sender': self.get_my_address() or 'unknown'
         }
         
@@ -315,9 +352,15 @@ class NetworkManager:
         outgoing = Message(
             text=message,
             sender_address=self.get_my_address() or "unknown",
-            is_encrypted=True
+            is_encrypted=True, 
+            timestamp=datetime.now(timezone.utc).timestamp(),
+            is_outgoing=True
         )
         self._message_log.append(outgoing)
+        
+        # Persist to DB
+        asyncio.create_task(self.db.add_message(outgoing, peer_address, is_outgoing=True))
+        
         print(f"[NetworkManager] Sending to {peer_address}: {message[:50]}...")
         
         if self._mock_mode or not self._p2p_service:
@@ -352,9 +395,15 @@ class NetworkManager:
             text=f"Sending file: {file_path.name}",
             sender_address=self.get_my_address() or "unknown",
             is_file=True,
-            filename=file_path.name
+            filename=file_path.name,
+            timestamp=datetime.now(timezone.utc).timestamp(),
+            is_outgoing=True
         )
         self._message_log.append(outgoing)
+        
+        # Persist
+        asyncio.create_task(self.db.add_message(outgoing, peer_address, is_outgoing=True))
+        
         print(f"[NetworkManager] Sending file {file_path.name} to {peer_address}")
         
         if self._mock_mode or not self._p2p_service:
@@ -365,9 +414,14 @@ class NetworkManager:
                     text=f"File received: {file_path.name}",
                     sender_address=peer_address,
                     is_file=True,
-                    filename=file_path.name
+                    filename=file_path.name,
+                    timestamp=datetime.now(timezone.utc).timestamp(),
+                    is_outgoing=False
                 )
                 self._message_log.append(reply)
+                # Persist reply
+                asyncio.create_task(self.db.add_message(reply, peer_address, is_outgoing=False))
+                
                 if self._on_message_received:
                     self._on_message_received(reply)
             self._app.add_background_task(do_mock_file_reply)

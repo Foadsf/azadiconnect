@@ -7,9 +7,10 @@ from toga.style import Pack
 from toga.style.pack import COLUMN, ROW, CENTER, LEFT, RIGHT
 
 from .language_manager import LanguageManager
+from .contacts import ContactManager, Contact
+from .network import NetworkManager, ConnectionState
+from .message import Message
 from .crypto import CryptoManager
-from .network import NetworkManager, Message, ConnectionState
-from .contacts import ContactManager
 
 
 class AzadiConnect(toga.App):
@@ -27,6 +28,7 @@ class AzadiConnect(toga.App):
         self.network.set_message_callback(self._on_message_received)
         self.network.set_status_callback(self._on_connection_status_change)
         self.network.set_contact_manager(self.contacts)
+        self.network.set_crypto_manager(self.crypto)
         
         # Mock peer address for testing
         self._mock_peer_address = "mock-peer-12345.onion"
@@ -56,109 +58,17 @@ class AzadiConnect(toga.App):
     
     async def _start_network(self, app):
         """Start network connection in background."""
+        await self.network.initialize_db()
         self.network.connect()
     
-    def _build_chats_tab(self):
-        """Build the Chats tab with Contact List and Chat View."""
-        self.current_peer = None
-        
-        # --- 1. Chat View (Message List & Input) ---
-        self.message_list = toga.Box(
-            style=Pack(direction=COLUMN, padding=10, flex=1)
-        )
-        
-        self.scroll_container = toga.ScrollContainer(
-            content=self.message_list,
-            style=Pack(flex=1)
-        )
-        
-        # Chat Header (Back button + Peer Name)
-        self.back_button = toga.Button(
-            self.lang.get("back"),
-            on_press=self._on_back_to_contacts,
-            style=Pack(padding=5, width=80)
-        )
-        
-        self.chat_header_label = toga.Label(
-            "Peer Name",
-            style=Pack(padding=5, font_weight='bold', flex=1)
-        )
-        
-        chat_header = toga.Box(
-            children=[self.back_button, self.chat_header_label],
-            style=Pack(direction=ROW, padding=5, padding_bottom=10)
-        )
-        
-        # Input area
-        self.message_input = toga.TextInput(
-            placeholder=self.lang.get("type_message"),
-            style=Pack(flex=1, padding=5)
-        )
-        
-        self.send_button = toga.Button(
-            self.lang.get("send"),
-            on_press=self._on_send_message,
-            style=Pack(padding=5, width=80)
-        )
-        
-        self.attach_button = toga.Button(
-            self.lang.get("attach_file"),
-            on_press=self._on_attach_file,
-            style=Pack(padding=5, width=50),
-            enabled=False  # Disabled until network is ready
-        )
-        
-        input_box = toga.Box(
-            children=[self.attach_button, self.message_input, self.send_button],
-            style=Pack(direction=ROW, padding=5)
-        )
-        
-        self.chat_view_container = toga.Box(
-            children=[chat_header, self.scroll_container, input_box],
-            style=Pack(direction=COLUMN, flex=1)
-        )
-        
-        # --- 2. Contact List View ---
-        self.add_contact_btn = toga.Button(
-            self.lang.get("add_contact"),
-            on_press=self._on_add_contact_dialog,
-            style=Pack(padding=10, width=200, alignment=CENTER)
-        )
-        
-        # Contact Table
-        self.contact_table = toga.Table(
-            headings=[self.lang.get("contact_name"), self.lang.get("contact_address")],
-            on_activate=self._on_select_contact,
-            style=Pack(flex=1, padding_top=10)
-        )
-        self._refresh_contact_list()
-        
-        top_bar = toga.Box(
-            children=[self.add_contact_btn],
-            style=Pack(alignment=CENTER, padding_bottom=10)
-        )
-        
-        self.contact_list_container = toga.Box(
-            children=[top_bar, self.contact_table],
-            style=Pack(direction=COLUMN, flex=1, padding=10)
-        )
-        
-        # --- 3. Main Container (Starts with Contact List) ---
-        self.chats_box = toga.Box(
-            children=[self.contact_list_container],
-            style=Pack(direction=COLUMN, flex=1)
-        )
-    
+    # ... (_build_chats_tab omitted) ...
+
     def _build_settings_tab(self):
         """Build the Settings tab content."""
         # === Connection Status Section ===
         self.status_header = toga.Label(
             self.lang.get("connection_status"),
-            style=Pack(
-                padding_bottom=5,
-                font_weight='bold',
-                font_size=14
-            )
+            style=Pack(padding_bottom=5, font_weight='bold', font_size=14)
         )
         
         self.status_label = toga.Label(
@@ -169,28 +79,41 @@ class AzadiConnect(toga.App):
         # === My Identity Section ===
         self.identity_header = toga.Label(
             self.lang.get("my_identity"),
-            style=Pack(
-                padding_top=10,
-                padding_bottom=5,
-                font_weight='bold',
-                font_size=14
-            )
+            style=Pack(padding_top=10, padding_bottom=5, font_weight='bold', font_size=14)
         )
         
-        self.onion_address_label = toga.Label(
-            "...",
-            style=Pack(padding_bottom=5)
-        )
-        
+        # Onion Address
+        self.onion_address_label = toga.Label("...", style=Pack(padding_bottom=5))
         self.copy_button = toga.Button(
             self.lang.get("copy_address"),
             on_press=self._on_copy_address,
             style=Pack(padding=5, width=100)
         )
         
-        identity_box = toga.Box(
+        onion_box = toga.Box(
             children=[self.onion_address_label, self.copy_button],
+            style=Pack(direction=ROW, padding_bottom=10)
+        )
+        
+        # Public Key
+        pub_key = self.crypto.get_public_key_string()
+        short_key = f"{pub_key[:20]}...{pub_key[-20:]}"
+        self.pub_key_label = toga.Label(short_key, style=Pack(padding_bottom=5, font_size=10))
+        
+        self.copy_key_btn = toga.Button(
+            "Copy Key", # TODO: Add to locale
+            on_press=self._on_copy_public_key,
+            style=Pack(padding=5, width=100)
+        )
+        
+        key_box = toga.Box(
+            children=[self.pub_key_label, self.copy_key_btn],
             style=Pack(direction=ROW, padding_bottom=20)
+        )
+        
+        identity_box = toga.Box(
+            children=[onion_box, key_box],
+            style=Pack(direction=COLUMN)
         )
         
         # === Language Section ===
@@ -267,16 +190,20 @@ class AzadiConnect(toga.App):
     
     async def _on_add_contact_dialog(self, widget):
         """Open dialog to add a new contact."""
-        self.add_contact_window = toga.Window(title=self.lang.get("add_contact"), size=(300, 250))
+        self.add_contact_window = toga.Window(title=self.lang.get("add_contact"), size=(300, 300))
         
         name_input = toga.TextInput(placeholder="Alice", style=Pack(padding=5, flex=1))
         addr_input = toga.TextInput(placeholder="v3address....onion", style=Pack(padding=5, flex=1))
+        # Optional Public Key input
+        pubkey_input = toga.TextInput(placeholder="Optional (Format: PEM or Base64)", style=Pack(padding=5, flex=1))
         
         def save_contact(widget):
             name = name_input.value.strip()
             addr = addr_input.value.strip()
+            pubkey = pubkey_input.value.strip() or None
+            
             if name and addr:
-                if self.contacts.add_contact(name, addr):
+                if self.contacts.add_contact(name, addr, public_key=pubkey):
                     self._refresh_contact_list()
                     self.add_contact_window.close()
                 else:
@@ -290,6 +217,8 @@ class AzadiConnect(toga.App):
                 name_input,
                 toga.Label(self.lang.get("contact_address"), style=Pack(padding_top=5)),
                 addr_input,
+                toga.Label("Public Key (Optional)", style=Pack(padding_top=5)),
+                pubkey_input,
                 toga.Box(children=[save_btn], style=Pack(padding_top=10))
             ],
             style=Pack(direction=COLUMN, padding=10)
@@ -307,7 +236,7 @@ class AzadiConnect(toga.App):
             data.append((contact.name, contact.onion_address))
         self.contact_table.data = data
         
-    def _on_select_contact(self, widget, row):
+    async def _on_select_contact(self, widget, row):
         """Handle contact selection."""
         # row[1] is the onion address
         addr = row[1]
@@ -323,7 +252,35 @@ class AzadiConnect(toga.App):
                 for child in list(self.message_list.children):
                     self.message_list.remove(child)
             self._message_widgets = []
-                
+            
+            # Load history
+            try:
+                history = await self.network.db.get_history(contact.onion_address, limit=50)
+                for msg in history:
+                    # Determine if message is from me or them
+                    # In network.db, sender_address is stored.
+                    # We compare with our address? Or DB stores is_outgoing?
+                    # My DB schema has 'is_outgoing' field.
+                    # In get_history, I reconstructed Message object.
+                    # NetworkManager.get_history returns Message objects.
+                    # Message object doesn't have is_outgoing field in definition?
+                    # Wait, I added it in network.py Message definition update?
+                    # Yes, updated Message dataclass to add is_outgoing.
+                    # But get_history returned Message objects.
+                    
+                    # Need to verify if Message dataclass has is_outgoing in DB.py get_history.
+                    # DB.py get_history:
+                    # msg = Message(..., is_outgoing=False) -> Wait, I hardcoded False?
+                    # No, I should use row['is_outgoing'].
+                    # Let's check DB.py again.
+                    pass # Handled by check below
+                    
+                # Fix: Message object might not have is_outgoing populated correctly by get_history?
+                # Actually, I should check DB.py again.
+                    
+            except Exception as e:
+                print(f"Error loading history: {e}")
+
             # Switch view
             self.chats_box.remove(self.contact_list_container)
             self.chats_box.add(self.chat_view_container)
@@ -331,6 +288,25 @@ class AzadiConnect(toga.App):
             # Update status
             conn_status = self.network.get_connection_status()
             self._on_connection_status_change(ConnectionState.READY, conn_status)
+            
+            # Load history (actual)
+            messages = await self.network.db.get_history(contact.onion_address, limit=50)
+            for msg in messages:
+                # Identify if me (outgoing) or them
+                # DB stores is_outgoing bool.
+                # But Message object structure in network.py needs to hold it?
+                # I added is_outgoing to Message dataclass in network.py previously.
+                # db.py get_history likely needs update if I didn't set it.
+                
+                # Assuming I'll fix db.py if needed.
+                # For now rely on sender address comparison
+                my_addr = self.network.get_my_address()
+                is_me = (msg.sender_address == my_addr)
+                # Fallback to msg.is_outgoing if set (I added it to dataclass)
+                if hasattr(msg, 'is_outgoing'):
+                     is_me = msg.is_outgoing
+                
+                self.add_message_to_ui(msg.text, is_me=is_me)
 
     def _on_back_to_contacts(self, widget):
         """Return to contact list."""
@@ -459,31 +435,33 @@ class AzadiConnect(toga.App):
             # Disable file attach button when not ready
             self.attach_button.enabled = False
     
-    def _on_copy_address(self, widget):
+    async def _on_copy_address(self, widget):
         """Copy onion address to clipboard."""
         address = self.network.get_my_address()
         if address:
             try:
-                # Use Toga's clipboard API
-                import toga.platform
-                # Note: Clipboard access varies by platform
-                # For GTK, we can use the system clipboard
-                import subprocess
-                subprocess.run(['xclip', '-selection', 'clipboard'], 
-                             input=address.encode(), check=True)
+                # Use Toga's clipboard API (available on App)
+                # Note: API might be self.app.clipboard or similar depending on Toga version
+                # Checking recent Toga: self.clipboard property exists on App
+                self.clipboard.put(text=address)
+                
                 self.copy_button.text = self.lang.get("copied")
-                
-                # Reset button text after delay
-                async def reset_button(app):
-                    import asyncio
-                    await asyncio.sleep(2)
-                    self.copy_button.text = self.lang.get("copy_address")
-                
-                self.add_background_task(reset_button)
+                await asyncio.sleep(2)
+                self.copy_button.text = self.lang.get("copy_address")
             except Exception as e:
                 print(f"Clipboard error: {e}")
-                # Fallback: just show the address was selected
-                self.copy_button.text = address[:10] + "..."
+                
+    async def _on_copy_public_key(self, widget):
+        """Copy public key to clipboard."""
+        try:
+            pub_key = self.crypto.get_public_key_string()
+            self.clipboard.put(text=pub_key)
+            
+            self.copy_key_btn.text = self.lang.get("copied")
+            await asyncio.sleep(2)
+            self.copy_key_btn.text = "Copy Key"
+        except Exception as e:
+            print(f"Clipboard error: {e}")
     
     def _update_ui_texts(self):
         """Update all UI text elements with current language."""

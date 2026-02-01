@@ -100,102 +100,81 @@ class CryptoManager:
         )
         return base64.b64encode(public_pem).decode('utf-8')
     
-    def _derive_shared_key(self, peer_public_key: ec.EllipticCurvePublicKey) -> bytes:
+    def encrypt_for_peer(self, plaintext: str, peer_public_key_pem: bytes) -> dict:
         """
-        Derive a shared secret using ECDH key exchange.
+        Encrypt a message for a peer using Ephemeral ECDH (ECIES).
         
         Args:
-            peer_public_key: The peer's public key
+            plaintext: The message to encrypt
+            peer_public_key_pem: Peer's public key in PEM format (bytes)
             
         Returns:
-            Derived 32-byte key suitable for Fernet
+            Dictionary with 'ephemeral_pub' and 'ciphertext'
         """
-        shared_secret = self._private_key.exchange(ec.ECDH(), peer_public_key)
+        # Load peer public key
+        peer_public_key = serialization.load_pem_public_key(peer_public_key_pem)
         
-        # Use HKDF to derive a proper key from the shared secret
+        # 1. Generate ephemeral key pair
+        e_priv = ec.generate_private_key(ec.SECP256R1())
+        e_pub = e_priv.public_key()
+        
+        # 2. Derive shared secret (Ephemeral Priv used with Peer Pub)
+        shared_secret = e_priv.exchange(ec.ECDH(), peer_public_key)
+        
+        # 3. Derive symmetric key
         derived_key = HKDF(
             algorithm=hashes.SHA256(),
             length=32,
             salt=None,
-            info=b'azadiconnect-session-key'
+            info=b'azadiconnect-ecies'
         ).derive(shared_secret)
         
-        return base64.urlsafe_b64encode(derived_key)
-    
-    def encrypt(self, message: str, peer_public_key_b64: str) -> str:
-        """
-        Encrypt a message for a specific peer.
-        
-        Args:
-            message: The plaintext message
-            peer_public_key_b64: Base64-encoded peer public key
-            
-        Returns:
-            Base64-encoded encrypted message
-        """
-        # Decode peer's public key
-        peer_public_pem = base64.b64decode(peer_public_key_b64)
-        peer_public_key = serialization.load_pem_public_key(peer_public_pem)
-        
-        # Derive shared key
-        fernet_key = self._derive_shared_key(peer_public_key)
+        fernet_key = base64.urlsafe_b64encode(derived_key)
         fernet = Fernet(fernet_key)
         
-        # Encrypt
-        encrypted = fernet.encrypt(message.encode('utf-8'))
-        return base64.b64encode(encrypted).decode('utf-8')
+        # 4. Encrypt message
+        ciphertext = fernet.encrypt(plaintext.encode('utf-8'))
+        
+        # 5. Serialize ephemeral public key
+        e_pub_bytes = e_pub.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        )
+        
+        return {
+            'ephemeral_pub': base64.b64encode(e_pub_bytes).decode('utf-8'),
+            'ciphertext': base64.b64encode(ciphertext).decode('utf-8')
+        }
     
-    def decrypt(self, ciphertext_b64: str, peer_public_key_b64: str) -> str:
+    def decrypt_from_peer(self, payload: dict) -> str:
         """
-        Decrypt a message from a specific peer.
+        Decrypt a message using Ephemeral ECDH.
         
         Args:
-            ciphertext_b64: Base64-encoded encrypted message
-            peer_public_key_b64: Base64-encoded peer public key
+            payload: Dictionary containing 'ephemeral_pub' and 'ciphertext'
             
         Returns:
-            Decrypted plaintext message
+            Decrypted plaintext string
         """
-        # Decode peer's public key
-        peer_public_pem = base64.b64decode(peer_public_key_b64)
-        peer_public_key = serialization.load_pem_public_key(peer_public_pem)
+        # Load ephemeral public key
+        e_pub_bytes = base64.b64decode(payload['ephemeral_pub'])
+        e_pub = serialization.load_pem_public_key(e_pub_bytes)
         
-        # Derive shared key
-        fernet_key = self._derive_shared_key(peer_public_key)
+        # 1. Derive shared secret (My Priv used with Ephemeral Pub)
+        shared_secret = self._private_key.exchange(ec.ECDH(), e_pub)
+        
+        # 2. Derive symmetric key
+        derived_key = HKDF(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=None,
+            info=b'azadiconnect-ecies'
+        ).derive(shared_secret)
+        
+        fernet_key = base64.urlsafe_b64encode(derived_key)
         fernet = Fernet(fernet_key)
         
-        # Decrypt
-        encrypted = base64.b64decode(ciphertext_b64)
-        decrypted = fernet.decrypt(encrypted)
-        return decrypted.decode('utf-8')
-    
-    def encrypt_simple(self, message: str) -> Tuple[str, bytes]:
-        """
-        Simple encryption using a random Fernet key (for mock mode).
-        
-        Args:
-            message: The plaintext message
-            
-        Returns:
-            Tuple of (encrypted message, key used)
-        """
-        key = Fernet.generate_key()
-        fernet = Fernet(key)
-        encrypted = fernet.encrypt(message.encode('utf-8'))
-        return base64.b64encode(encrypted).decode('utf-8'), key
-    
-    def decrypt_simple(self, ciphertext_b64: str, key: bytes) -> str:
-        """
-        Simple decryption using a provided Fernet key (for mock mode).
-        
-        Args:
-            ciphertext_b64: Base64-encoded encrypted message
-            key: The Fernet key used for encryption
-            
-        Returns:
-            Decrypted plaintext message
-        """
-        fernet = Fernet(key)
-        encrypted = base64.b64decode(ciphertext_b64)
-        decrypted = fernet.decrypt(encrypted)
+        # 3. Decrypt
+        ciphertext = base64.b64decode(payload['ciphertext'])
+        decrypted = fernet.decrypt(ciphertext)
         return decrypted.decode('utf-8')
