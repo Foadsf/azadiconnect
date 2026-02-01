@@ -58,6 +58,14 @@ class CryptoManager:
         )
         self._private_key_path.write_bytes(private_pem)
         
+        # Harden permissions (read/write by owner only)
+        try:
+            import stat
+            os.chmod(self._private_key_path, stat.S_IRUSR | stat.S_IWUSR)
+        except Exception as e:
+            print(f"[CryptoManager] Failed to set private key permissions: {e}")
+        
+        
         # Serialize and save public key
         public_pem = self._public_key.public_bytes(
             encoding=serialization.Encoding.PEM,

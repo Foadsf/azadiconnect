@@ -21,5 +21,13 @@
     "copied": "کپی شد!",
     "disconnected": "قطع",
     "connecting": "در حال اتصال...",
-    "ready": "متصل"
+    "ready": "متصل",
+    "contacts_title": "مخاطبین",
+    "contact_name": "نام",
+    "contact_address": "آدرس پیازی (Onion)",
+    "save": "ذخیره",
+    "cancel": "لغو",
+    "back": "بازگشت",
+    "delete": "حذف",
+    "confirm_delete": "حذف مخاطب؟"
 }

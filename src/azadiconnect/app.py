@@ -9,6 +9,7 @@ from toga.style.pack import COLUMN, ROW, CENTER, LEFT, RIGHT
 from .language_manager import LanguageManager
 from .crypto import CryptoManager
 from .network import NetworkManager, Message, ConnectionState
+from .contacts import ContactManager
 
 
 class AzadiConnect(toga.App):
@@ -20,10 +21,12 @@ class AzadiConnect(toga.App):
         self.lang.register_listener(self._on_language_change)
         
         # Initialize managers
+        self.contacts = ContactManager(self.paths.data)
         self.crypto = CryptoManager(self.paths.data)
         self.network = NetworkManager(self, self.paths.data)
         self.network.set_message_callback(self._on_message_received)
         self.network.set_status_callback(self._on_connection_status_change)
+        self.network.set_contact_manager(self.contacts)
         
         # Mock peer address for testing
         self._mock_peer_address = "mock-peer-12345.onion"
@@ -56,19 +59,34 @@ class AzadiConnect(toga.App):
         self.network.connect()
     
     def _build_chats_tab(self):
-        """Build the Chats tab with actual chat interface."""
-        # Message list container (scrollable)
+        """Build the Chats tab with Contact List and Chat View."""
+        self.current_peer = None
+        
+        # --- 1. Chat View (Message List & Input) ---
         self.message_list = toga.Box(
-            style=Pack(
-                direction=COLUMN,
-                padding=10,
-                flex=1
-            )
+            style=Pack(direction=COLUMN, padding=10, flex=1)
         )
         
         self.scroll_container = toga.ScrollContainer(
             content=self.message_list,
             style=Pack(flex=1)
+        )
+        
+        # Chat Header (Back button + Peer Name)
+        self.back_button = toga.Button(
+            self.lang.get("back"),
+            on_press=self._on_back_to_contacts,
+            style=Pack(padding=5, width=80)
+        )
+        
+        self.chat_header_label = toga.Label(
+            "Peer Name",
+            style=Pack(padding=5, font_weight='bold', flex=1)
+        )
+        
+        chat_header = toga.Box(
+            children=[self.back_button, self.chat_header_label],
+            style=Pack(direction=ROW, padding=5, padding_bottom=10)
         )
         
         # Input area
@@ -95,16 +113,40 @@ class AzadiConnect(toga.App):
             style=Pack(direction=ROW, padding=5)
         )
         
-        # Main chat layout
+        self.chat_view_container = toga.Box(
+            children=[chat_header, self.scroll_container, input_box],
+            style=Pack(direction=COLUMN, flex=1)
+        )
+        
+        # --- 2. Contact List View ---
+        self.add_contact_btn = toga.Button(
+            self.lang.get("add_contact"),
+            on_press=self._on_add_contact_dialog,
+            style=Pack(padding=10, width=200, alignment=CENTER)
+        )
+        
+        # Contact Table
+        self.contact_table = toga.Table(
+            headings=[self.lang.get("contact_name"), self.lang.get("contact_address")],
+            on_activate=self._on_select_contact,
+            style=Pack(flex=1, padding_top=10)
+        )
+        self._refresh_contact_list()
+        
+        top_bar = toga.Box(
+            children=[self.add_contact_btn],
+            style=Pack(alignment=CENTER, padding_bottom=10)
+        )
+        
+        self.contact_list_container = toga.Box(
+            children=[top_bar, self.contact_table],
+            style=Pack(direction=COLUMN, flex=1, padding=10)
+        )
+        
+        # --- 3. Main Container (Starts with Contact List) ---
         self.chats_box = toga.Box(
-            children=[
-                self.scroll_container,
-                input_box
-            ],
-            style=Pack(
-                direction=COLUMN,
-                flex=1
-            )
+            children=[self.contact_list_container],
+            style=Pack(direction=COLUMN, flex=1)
         )
     
     def _build_settings_tab(self):
@@ -223,6 +265,80 @@ class AzadiConnect(toga.App):
             self._chats_tab.text = self.lang.get("tab_chats")
             self._settings_tab.text = self.lang.get("tab_settings")
     
+    async def _on_add_contact_dialog(self, widget):
+        """Open dialog to add a new contact."""
+        self.add_contact_window = toga.Window(title=self.lang.get("add_contact"), size=(300, 250))
+        
+        name_input = toga.TextInput(placeholder="Alice", style=Pack(padding=5, flex=1))
+        addr_input = toga.TextInput(placeholder="v3address....onion", style=Pack(padding=5, flex=1))
+        
+        def save_contact(widget):
+            name = name_input.value.strip()
+            addr = addr_input.value.strip()
+            if name and addr:
+                if self.contacts.add_contact(name, addr):
+                    self._refresh_contact_list()
+                    self.add_contact_window.close()
+                else:
+                    self.main_window.error_dialog("Error", "Invalid .onion address")
+                    
+        save_btn = toga.Button(self.lang.get("save"), on_press=save_contact, style=Pack(padding=5, flex=1))
+        
+        box = toga.Box(
+            children=[
+                toga.Label(self.lang.get("contact_name"), style=Pack(padding_top=5)),
+                name_input,
+                toga.Label(self.lang.get("contact_address"), style=Pack(padding_top=5)),
+                addr_input,
+                toga.Box(children=[save_btn], style=Pack(padding_top=10))
+            ],
+            style=Pack(direction=COLUMN, padding=10)
+        )
+        self.add_contact_window.content = box
+        self.add_contact_window.show()
+
+    def _refresh_contact_list(self):
+        """Reload contacts into the table."""
+        if not hasattr(self, 'contact_table'):
+            return
+            
+        data = []
+        for contact in self.contacts.get_all():
+            data.append((contact.name, contact.onion_address))
+        self.contact_table.data = data
+        
+    def _on_select_contact(self, widget, row):
+        """Handle contact selection."""
+        # row[1] is the onion address
+        addr = row[1]
+        contact = self.contacts.get_contact(addr)
+        if contact:
+            self.current_peer = contact
+            self.chat_header_label.text = contact.display_name
+            
+            # Clear old messages
+            if hasattr(self.message_list, 'clear'):
+                self.message_list.clear() # Toga main branch has clear()
+            else:
+                for child in list(self.message_list.children):
+                    self.message_list.remove(child)
+            self._message_widgets = []
+                
+            # Switch view
+            self.chats_box.remove(self.contact_list_container)
+            self.chats_box.add(self.chat_view_container)
+            
+            # Update status
+            conn_status = self.network.get_connection_status()
+            self._on_connection_status_change(ConnectionState.READY, conn_status)
+
+    def _on_back_to_contacts(self, widget):
+        """Return to contact list."""
+        self.current_peer = None
+        self.chats_box.remove(self.chat_view_container)
+        self.chats_box.add(self.contact_list_container)
+        self._refresh_contact_list()
+
     def add_message_to_ui(self, text: str, is_me: bool = True) -> None:
         """
         Add a message bubble to the chat UI.
@@ -284,6 +400,10 @@ class AzadiConnect(toga.App):
         text = self.message_input.value.strip()
         if not text:
             return
+            
+        if not self.current_peer:
+            self.main_window.info_dialog("Info", "No peer selected")
+            return
         
         # Clear input
         self.message_input.value = ""
@@ -292,10 +412,13 @@ class AzadiConnect(toga.App):
         self.add_message_to_ui(text, is_me=True)
         
         # Send via network
-        self.network.send_message(self._mock_peer_address, text)
+        self.network.send_message(self.current_peer.onion_address, text)
     
     async def _on_attach_file(self, widget):
         """Handle attach file button press."""
+        if not self.current_peer:
+            return
+
         try:
             file_path = await self.main_window.open_file_dialog(
                 title="Select file to send",
@@ -308,7 +431,7 @@ class AzadiConnect(toga.App):
                 self.add_message_to_ui(f"{self.lang.get('sending_file')}{filename}", is_me=True)
                 
                 # Send file via network
-                self.network.send_file(self._mock_peer_address, file_path)
+                self.network.send_file(self.current_peer.onion_address, file_path)
                 
         except Exception as e:
             print(f"[App] File dialog error: {e}")

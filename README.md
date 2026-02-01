@@ -2,7 +2,7 @@
 
 ![Status: Alpha](https://img.shields.io/badge/Status-Alpha-yellow)
 ![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-blue)
-![License](https://img.shields.io/badge/License-BSD--3-green)
+![License](https://img.shields.io/badge/License-MIT-yellow.svg)
 
 **Censorship-Resistant P2P Chat & File Transfer**
 
@@ -187,7 +187,7 @@ briefcase package
 
 ## License
 
-BSD 3-Clause License. See [LICENSE](LICENSE) file.
+MIT License. See [LICENSE](LICENSE) file.
 
 ---
 

@@ -20,5 +20,13 @@
   "copied": "Copied!",
   "disconnected": "Disconnected",
   "connecting": "Connecting...",
-  "ready": "Connected"
+  "ready": "Connected",
+  "contacts_title": "Contacts",
+  "contact_name": "Name",
+  "contact_address": "Onion Address",
+  "save": "Save",
+  "cancel": "Cancel",
+  "back": "Back",
+  "delete": "Delete",
+  "confirm_delete": "Delete contact?"
 }

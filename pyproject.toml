@@ -4,7 +4,7 @@ build-backend = "briefcase.integrations.setuptools"
 
 [project]
 name = "azadiconnect"
-version = "0.1.0"
+version = "0.2.0"
 description = "Secure P2P censorship-resistant chat for users in Iran"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -25,7 +25,7 @@ Homepage = "https://github.com/azadiconnect/azadiconnect"
 [tool.briefcase]
 project_name = "AzadiConnect"
 bundle = "org.azadiconnect"
-version = "0.1.0"
+version = "0.2.0"
 url = "https://github.com/azadiconnect/azadiconnect"
 license.file = "LICENSE"
 author = "AzadiConnect Team"

@@ -83,6 +83,11 @@ class NetworkManager:
         # Callbacks
         self._on_message_received: Optional[Callable[[Message], None]] = None
         self._on_status_change: Optional[Callable[[ConnectionState, str], None]] = None
+        self._contact_manager = None
+
+    def set_contact_manager(self, contact_manager):
+        """Set the contact manager for identity lookups."""
+        self._contact_manager = contact_manager
         
         # Message log
         self._message_log: list[Message] = []
@@ -268,6 +273,14 @@ class NetworkManager:
         if not self._p2p_service:
             print("[NetworkManager] P2P service not available")
             return False
+            
+        # Check contact for encryption key (Stub)
+        if self._contact_manager:
+            contact = self._contact_manager.get_contact(peer_address)
+            if contact and contact.public_key:
+                # TODO: Encrypt payload with peer.public_key
+                # print(f"[NetworkManager] Found public key for {contact.name}, ready for encryption")
+                pass
         
         payload = {
             'type': 'text',
