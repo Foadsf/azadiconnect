@@ -47,19 +47,16 @@ brew install tor
 # Extract, find tor.exe in: Tor Browser\Browser\TorBrowser\Tor\tor.exe
 ```
 
-**2. Linux AppImage Requirements:**
+# Extract, find tor.exe in: Tor Browser\Browser\TorBrowser\Tor\tor.exe
+```
 
-The AppImage is portable but requires system GTK libraries. If you see a crash on launch:
+**2. Linux (.deb):**
+
+Download the latest `.deb` package from Releases.
 
 ```bash
-# Ubuntu/Debian/Mint
-sudo apt install gir1.2-gtk-3.0 libgirepository-1.0-1
-
-# Fedora
-sudo dnf install gtk3 gobject-introspection
-
-# Arch
-sudo pacman -S gtk3 gobject-introspection
+# Install with apt (handles dependencies automatically)
+sudo apt install ./AzadiConnect-linux-amd64.deb
 ```
 
 **3. Install Snowflake (Optional — for censored regions):**

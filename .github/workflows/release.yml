@@ -23,7 +23,7 @@ jobs:
   # Linux AppImage Build
   # ===========================================================================
   build-linux:
-    name: Build Linux AppImage
+    name: Build Linux .deb
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
@@ -51,30 +51,30 @@ jobs:
           python -m pip install --upgrade pip
           pip install briefcase==${{ env.BRIEFCASE_VERSION }}
 
-      - name: Build AppImage
+      - name: Build Debian Package
         run: |
-          briefcase create linux appimage
-          briefcase build linux appimage
-          briefcase package linux appimage
+          briefcase create linux system
+          briefcase build linux system
+          briefcase package linux system
 
       - name: Find and rename artifact
         id: artifact
         run: |
-          APPIMAGE=$(find dist -name "*.AppImage" -type f | head -1)
-          if [ -n "$APPIMAGE" ]; then
-            NEWNAME="AzadiConnect-linux-x86_64.AppImage"
-            cp "$APPIMAGE" "dist/$NEWNAME"
+          DEB=$(find dist -name "*.deb" -type f | head -1)
+          if [ -n "$DEB" ]; then
+            NEWNAME="AzadiConnect-linux-amd64.deb"
+            cp "$DEB" "dist/$NEWNAME"
             echo "path=dist/$NEWNAME" >> $GITHUB_OUTPUT
             echo "name=$NEWNAME" >> $GITHUB_OUTPUT
           else
-            echo "No AppImage found!"
+            echo "No DEB found!"
             exit 1
           fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: linux-appimage
+          name: linux-deb
           path: ${{ steps.artifact.outputs.path }}
           retention-days: 5
 
@@ -333,7 +333,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            artifacts/linux-appimage/*.AppImage
+            artifacts/linux-deb/*.deb
             artifacts/windows-msi/*.msi
             artifacts/macos-dmg/*.dmg
             artifacts/android-apk/*.apk
