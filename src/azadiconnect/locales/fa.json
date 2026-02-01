@@ -12,5 +12,11 @@
     "send": "ارسال",
     "type_message": "پیام خود را بنویسید...",
     "connection_status": "وضعیت اتصال",
-    "mock_mode": "حالت شبیه‌سازی"
+    "mock_mode": "حالت شبیه‌سازی",
+    "my_identity": "هویت من",
+    "copy_address": "کپی",
+    "copied": "کپی شد!",
+    "disconnected": "قطع",
+    "connecting": "در حال اتصال...",
+    "ready": "متصل"
 }

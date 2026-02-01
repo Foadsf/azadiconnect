@@ -11,5 +11,11 @@
   "send": "Send",
   "type_message": "Type a message...",
   "connection_status": "Connection Status",
-  "mock_mode": "Mock Mode (Simulated)"
+  "mock_mode": "Mock Mode (Simulated)",
+  "my_identity": "My Identity",
+  "copy_address": "Copy",
+  "copied": "Copied!",
+  "disconnected": "Disconnected",
+  "connecting": "Connecting...",
+  "ready": "Connected"
 }

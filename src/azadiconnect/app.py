@@ -1,6 +1,6 @@
 """
 AzadiConnect - Secure P2P Chat Application
-Main application module with bilingual (English/Farsi) UI and chat interface.
+Main application module with bilingual (English/Farsi) UI, chat interface, and Tor integration.
 """
 import toga
 from toga.style import Pack
@@ -8,7 +8,7 @@ from toga.style.pack import COLUMN, ROW, CENTER, LEFT, RIGHT
 
 from .language_manager import LanguageManager
 from .crypto import CryptoManager
-from .network import NetworkManager, Message
+from .network import NetworkManager, Message, ConnectionState
 
 
 class AzadiConnect(toga.App):
@@ -21,8 +21,9 @@ class AzadiConnect(toga.App):
         
         # Initialize managers
         self.crypto = CryptoManager(self.paths.data)
-        self.network = NetworkManager(self)
+        self.network = NetworkManager(self, self.paths.data)
         self.network.set_message_callback(self._on_message_received)
+        self.network.set_status_callback(self._on_connection_status_change)
         
         # Mock peer address for testing
         self._mock_peer_address = "mock-peer-12345.onion"
@@ -46,6 +47,13 @@ class AzadiConnect(toga.App):
         self.main_window = toga.MainWindow(title=self.lang.get("app_name"))
         self.main_window.content = self.tab_container
         self.main_window.show()
+        
+        # Start network connection in background
+        self.add_background_task(self._start_network)
+    
+    async def _start_network(self, app):
+        """Start network connection in background."""
+        self.network.connect()
     
     def _build_chats_tab(self):
         """Build the Chats tab with actual chat interface."""
@@ -94,10 +102,53 @@ class AzadiConnect(toga.App):
     
     def _build_settings_tab(self):
         """Build the Settings tab content."""
-        # Language section header
+        # === Connection Status Section ===
+        self.status_header = toga.Label(
+            self.lang.get("connection_status"),
+            style=Pack(
+                padding_bottom=5,
+                font_weight='bold',
+                font_size=14
+            )
+        )
+        
+        self.status_label = toga.Label(
+            self.lang.get("disconnected"),
+            style=Pack(padding_bottom=15)
+        )
+        
+        # === My Identity Section ===
+        self.identity_header = toga.Label(
+            self.lang.get("my_identity"),
+            style=Pack(
+                padding_top=10,
+                padding_bottom=5,
+                font_weight='bold',
+                font_size=14
+            )
+        )
+        
+        self.onion_address_label = toga.Label(
+            "...",
+            style=Pack(padding_bottom=5)
+        )
+        
+        self.copy_button = toga.Button(
+            self.lang.get("copy_address"),
+            on_press=self._on_copy_address,
+            style=Pack(padding=5, width=100)
+        )
+        
+        identity_box = toga.Box(
+            children=[self.onion_address_label, self.copy_button],
+            style=Pack(direction=ROW, padding_bottom=20)
+        )
+        
+        # === Language Section ===
         self.lang_header = toga.Label(
             self.lang.get("settings_language"),
             style=Pack(
+                padding_top=20,
                 padding_bottom=5,
                 font_weight='bold',
                 font_size=14
@@ -127,29 +178,16 @@ class AzadiConnect(toga.App):
             style=Pack(direction=ROW, padding_bottom=20)
         )
         
-        # Connection status section
-        self.status_header = toga.Label(
-            self.lang.get("connection_status"),
-            style=Pack(
-                padding_top=20,
-                padding_bottom=5,
-                font_weight='bold',
-                font_size=14
-            )
-        )
-        
-        self.status_label = toga.Label(
-            self.network.get_connection_status() if hasattr(self, 'network') else self.lang.get("mock_mode"),
-            style=Pack(padding_bottom=10)
-        )
-        
+        # === Assemble Settings ===
         self.settings_box = toga.Box(
             children=[
+                self.status_header,
+                self.status_label,
+                self.identity_header,
+                identity_box,
                 self.lang_header,
                 self.lang_desc,
-                lang_buttons_box,
-                self.status_header,
-                self.status_label
+                lang_buttons_box
             ],
             style=Pack(
                 direction=COLUMN,
@@ -189,8 +227,6 @@ class AzadiConnect(toga.App):
         is_rtl = self.lang.is_rtl()
         
         # Determine alignment based on sender and RTL mode
-        # In LTR: my messages right, theirs left
-        # In RTL: my messages left, theirs right
         if is_me:
             align = LEFT if is_rtl else RIGHT
             bg_color = "#DCF8C6"  # Light green for sent
@@ -220,11 +256,9 @@ class AzadiConnect(toga.App):
         
         # Add spacer for alignment
         if (is_me and not is_rtl) or (not is_me and is_rtl):
-            # Push to right: add spacer on left
             spacer = toga.Box(style=Pack(flex=1))
             bubble_box.insert(0, spacer)
         elif (not is_me and not is_rtl) or (is_me and is_rtl):
-            # Push to left: add spacer on right
             spacer = toga.Box(style=Pack(flex=1))
             bubble_box.add(spacer)
         
@@ -232,11 +266,11 @@ class AzadiConnect(toga.App):
         self.message_list.add(bubble_box)
         self._message_widgets.append(bubble_box)
         
-        # Try to scroll to bottom (best effort)
+        # Try to scroll to bottom
         try:
             self.scroll_container.vertical_position = self.scroll_container.max_vertical_position
         except Exception:
-            pass  # Scrolling may not be supported on all platforms
+            pass
     
     def _on_send_message(self, widget):
         """Handle send button press."""
@@ -250,19 +284,51 @@ class AzadiConnect(toga.App):
         # Add message to UI
         self.add_message_to_ui(text, is_me=True)
         
-        # Send via network (mock mode will trigger auto-reply)
-        # In real mode, we'd encrypt first with peer's public key
+        # Send via network
         self.network.send_message(self._mock_peer_address, text)
     
     def _on_message_received(self, message: Message):
-        """
-        Callback when a message is received from the network.
-        
-        Args:
-            message: The received Message object
-        """
-        # Add to UI (decryption would happen here in real mode)
+        """Callback when a message is received from the network."""
         self.add_message_to_ui(message.text, is_me=False)
+    
+    def _on_connection_status_change(self, state: ConnectionState, message: str):
+        """Callback when connection status changes."""
+        # Update status label
+        self.status_label.text = message
+        
+        # Update onion address if ready
+        if state == ConnectionState.READY:
+            address = self.network.get_my_address()
+            if address:
+                self.onion_address_label.text = address
+            else:
+                self.onion_address_label.text = self.lang.get("mock_mode")
+    
+    def _on_copy_address(self, widget):
+        """Copy onion address to clipboard."""
+        address = self.network.get_my_address()
+        if address:
+            try:
+                # Use Toga's clipboard API
+                import toga.platform
+                # Note: Clipboard access varies by platform
+                # For GTK, we can use the system clipboard
+                import subprocess
+                subprocess.run(['xclip', '-selection', 'clipboard'], 
+                             input=address.encode(), check=True)
+                self.copy_button.text = self.lang.get("copied")
+                
+                # Reset button text after delay
+                async def reset_button(app):
+                    import asyncio
+                    await asyncio.sleep(2)
+                    self.copy_button.text = self.lang.get("copy_address")
+                
+                self.add_background_task(reset_button)
+            except Exception as e:
+                print(f"Clipboard error: {e}")
+                # Fallback: just show the address was selected
+                self.copy_button.text = address[:10] + "..."
     
     def _update_ui_texts(self):
         """Update all UI text elements with current language."""
@@ -274,11 +340,13 @@ class AzadiConnect(toga.App):
         self.send_button.text = self.lang.get("send")
         
         # Update Settings tab
+        self.status_header.text = self.lang.get("connection_status")
+        self.identity_header.text = self.lang.get("my_identity")
+        self.copy_button.text = self.lang.get("copy_address")
         self.lang_header.text = self.lang.get("settings_language")
         self.lang_desc.text = self.lang.get("settings_language_desc")
         self.btn_english.text = self.lang.get("english")
         self.btn_farsi.text = self.lang.get("farsi")
-        self.status_header.text = self.lang.get("connection_status")
         
         # Update tab labels
         self._update_tabs()
