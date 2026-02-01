@@ -1,0 +1,48 @@
+azadiconnect (0.3.4) stable; urgency=medium
+
+  * Patch Release: Native Linux .deb Support.
+  * Switched from AppImage to native Debian package to resolve GLib compatibility issues on modern distros (Ubuntu 24.04, Mint 22).
+  * Pinned travertino dependency to fix warnings.
+
+ -- AzadiConnect Team <team@azadiconnect.org>  Mon, 02 Feb 2026 12:00:00 +0000
+
+azadiconnect (0.3.3) stable; urgency=medium
+
+  * Patch Release: Critical Linux AppImage Fix.
+  * Patched runtime environment to locate system GTK libraries.
+
+ -- AzadiConnect Team <team@azadiconnect.org>  Mon, 02 Feb 2026 11:00:00 +0000
+
+azadiconnect (0.3.1) stable; urgency=medium
+
+  * Patch Release: Security Hardening & Bug Fixes.
+  * Fixed UI async crashes.
+  * Implemented file transfer encryption.
+  * Hardened contact storage with atomic writes.
+
+ -- AzadiConnect Team <team@azadiconnect.org>  Mon, 02 Feb 2026 10:00:00 +0000
+
+azadiconnect (0.3.0) stable; urgency=medium
+
+  * Beta Release: Persistence & Encryption.
+  * Added SQLite message persistence.
+  * Enabled application-layer End-to-End Encryption.
+  * Fixed clipboard support.
+
+ -- AzadiConnect Team <team@azadiconnect.org>  Mon, 02 Feb 2026 09:00:00 +0000
+
+azadiconnect (0.2.0) stable; urgency=medium
+
+  * Beta Release: Contact Management.
+  * Added Contact List and storage.
+  * Security hardening for private keys.
+
+ -- AzadiConnect Team <team@azadiconnect.org>  Mon, 02 Feb 2026 08:00:00 +0000
+
+azadiconnect (0.1.0) stable; urgency=medium
+
+  * Initial Alpha Release.
+  * Basic Tor/Snowflake integration.
+  * Bilingual UI (English/Farsi).
+
+ -- AzadiConnect Team <team@azadiconnect.org>  Mon, 02 Feb 2026 07:00:00 +0000
