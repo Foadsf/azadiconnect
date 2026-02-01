@@ -1,205 +1,200 @@
-# Toga Hello World
+# AzadiConnect
 
-A minimal, cross-platform GUI application written in Python using [BeeWare/Toga](https://beeware.org/).
+![Status: Alpha](https://img.shields.io/badge/Status-Alpha-yellow)
+![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-blue)
+![License](https://img.shields.io/badge/License-BSD--3-green)
 
-[![Release](https://github.com/Foadsf/helloworld-toga/actions/workflows/release.yml/badge.svg)](https://github.com/Foadsf/helloworld-toga/actions/workflows/release.yml)
+**Censorship-Resistant P2P Chat & File Transfer**
 
-## Project Structure
+AzadiConnect is a cross-platform application that enables secure, anonymous peer-to-peer communication over the Tor network. Designed for users in restricted environments, it provides end-to-end encrypted messaging with built-in censorship circumvention.
 
+آزادی به معنای ارتباط بدون سانسور است.
+*(Azadi means communication without censorship.)*
 
-```
+---
 
-toga-hello/
-├── .github/
-│   └── workflows/
-│       └── release.yml      # CI/CD for cross-platform builds
-├── icons/
-│   └── README.md            # Icon requirements
-├── src/
-│   └── helloworld/
-│       ├── **init**.py      # Package marker
-│       ├── **main**.py      # Execution entry point
-│       └── app.py           # Main application logic
-├── tests/
-│   └── **init**.py
-├── https://www.google.com/search?q=LICENSE
-├── pyproject.toml           # Briefcase configuration
-└── README.md
+## Features
 
-```
+- 🔒 **End-to-End Encryption** — All traffic encrypted by Tor Hidden Services (v3 onions)
+- 🌐 **Anonymous Identity** — Each user gets a unique `.onion` address
+- 💬 **Real-Time Chat** — P2P messaging over Tor
+- 📎 **File Transfer** — Send files up to 7MB (Base64 encoded)
+- 🌨️ **Snowflake Transport** — Bypass censorship using WebRTC proxies
+- 🌍 **Bilingual UI** — English and Farsi (فارسی) with RTL support
 
-## Prerequisites (Local Development)
+---
 
-### Linux (Ubuntu 24.04+ / Linux Mint 22)
+## Quick Start
 
-This project relies on GTK bindings. **Note:** Ubuntu 24.04 and Linux Mint 22 have moved to `girepository-2.0`. You must install the correct development headers for local testing:
+### Prerequisites
+
+**1. Install Tor:**
 
 ```bash
-sudo apt update
-sudo apt install -y git python3-dev python3-venv \
-    libgirepository-2.0-dev \
-    libcairo2-dev gir1.2-gtk-3.0 pkg-config
+# Linux (Ubuntu/Debian)
+sudo apt install tor
 
+# Linux (Fedora)
+sudo dnf install tor
+
+# macOS
+brew install tor
+
+# Windows: Download from https://www.torproject.org/download/
+# Extract, find tor.exe in: Tor Browser\Browser\TorBrowser\Tor\tor.exe
 ```
 
-> **Legacy Systems:** If you are on Ubuntu 22.04 or older, use `libgirepository1.0-dev` instead.
+**2. Install Snowflake (Optional — for censored regions):**
 
-### macOS / Windows
+Download from: https://gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/snowflake/-/releases
 
-See [BeeWare documentation](https://docs.beeware.org/) for platform-specific requirements.
-
-## Installation
-
-1. **Create and activate a virtual environment:**
 ```bash
-python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
+# Create resources directory and install
+mkdir -p src/azadiconnect/resources
+cp ~/Downloads/snowflake-client_linux_amd64 src/azadiconnect/resources/snowflake-client
+chmod +x src/azadiconnect/resources/snowflake-client
 ```
 
+### Running the Application
 
-2. **Install Briefcase (The packaging tool):**
 ```bash
+# Clone and enter directory
+cd toga_file_share
+
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # Linux/macOS
+# OR: venv\Scripts\activate  # Windows
+
+# Install dependencies
 pip install briefcase
 
-```
-
-
-3. **Install the project in editable mode:**
-This ensures `briefcase` can find your code logic in `src/`.
-```bash
-pip install -e .
-
-```
-
-
-
-## Usage
-
-### Run with Briefcase (Recommended)
-
-This emulates the full packaging environment.
-
-```bash
+# Run in development mode
 briefcase dev
-
 ```
 
-### Run directly (Quick Testing)
+---
 
-Since this is a standard Python package, you can run it as a module:
+## Development
+
+### Project Structure
+
+```
+toga_file_share/
+├── README.md                     # This file
+├── pyproject.toml                # Project config & dependencies
+├── tests/                        # Unit tests
+│   └── test_core.py
+└── src/azadiconnect/
+    ├── app.py                    # Main UI (Toga)
+    ├── crypto.py                 # ECC key generation
+    ├── language_manager.py       # EN/FA localization
+    ├── network.py                # Connection state machine
+    ├── p2p_service.py            # P2P TCP over SOCKS5
+    ├── tor_manager.py            # Tor process & Hidden Service
+    ├── locales/                  # Translation files
+    │   ├── en.json
+    │   └── fa.json
+    └── resources/                # Snowflake binary location
+```
+
+### Running Tests
 
 ```bash
-python -m helloworld
+# Activate virtual environment
+source venv/bin/activate
 
+# Run unit tests
+pytest tests/ -v
 ```
 
-## Packaging (Local Builds)
-
-To bundle this application for distribution locally, use `briefcase`.
+### Building for Distribution
 
 ```bash
-# Linux AppImage (Portable single-file executable)
-# Note: Uses manylinux_2_34 (AlmaLinux 9) Docker image
-briefcase create linux appimage
-briefcase build linux appimage
-briefcase package linux appimage
+# Build native package
+briefcase build
 
-# Windows (Must run on Windows)
-briefcase create windows app
-briefcase build windows app
-briefcase package windows app
-
-# macOS (Must run on macOS)
-briefcase create macOS app
-briefcase build macOS app
-# For ad-hoc signing (runs locally only):
-briefcase package macOS app --adhoc-sign
-# For distribution (requires Developer ID):
-# briefcase package macOS app --identity "Developer ID Application: ..."
-
-# Android (Requires Android SDK - Briefcase handles this)
-briefcase create android
-briefcase build android
-briefcase package android
-
-# iOS (Requires macOS + Xcode)
-briefcase create iOS
-briefcase build iOS
-briefcase package iOS
-
+# Package for distribution
+briefcase package
 ```
 
-## Automated Releases (CI/CD)
+---
 
-This repository includes a GitHub Action (`.github/workflows/release.yml`) that automatically builds binaries whenever you push a version tag.
-
-1. **Commit your changes:**
-```bash
-git add .
-git commit -m "Your commit message"
-git push origin main
+## Architecture
 
 ```
-
-
-2. **Trigger a release:**
-```bash
-git tag -f v0.1.0
-git push -f origin v0.1.0
-
+┌─────────────────────────────────────────────────────────────┐
+│                     Toga UI (app.py)                        │
+│  ┌─────────┐  ┌────────────────────────────┐  ┌──────────┐ │
+│  │  Tabs   │  │     Chat Interface         │  │ Settings │ │
+│  │ EN | FA │  │ [📎] [Message Input] [Send]│  │ .onion   │ │
+│  └─────────┘  └────────────────────────────┘  └──────────┘ │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+┌────────────────────────▼────────────────────────────────────┐
+│                  NetworkManager                              │
+│  State: DISCONNECTED → STARTING_TOR → READY                 │
+│  Routes messages between UI and P2PService                   │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+┌────────────────────────▼────────────────────────────────────┐
+│                    P2PService                                │
+│  Server: TCP on 127.0.0.1:8080 (receives from Hidden Svc)   │
+│  Client: SOCKS5 → Tor → peer.onion:80                       │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+┌────────────────────────▼────────────────────────────────────┐
+│                    TorManager                                │
+│  Binary detection → Config → Bootstrap → Hidden Service     │
+│  Optional: Snowflake pluggable transport                    │
+└─────────────────────────────────────────────────────────────┘
 ```
 
+---
 
+## Troubleshooting
 
-The workflow builds and uploads the following artifacts:
+| Issue | Solution |
+|-------|----------|
+| "Mock Mode" appears | Ensure `tor` is installed and in PATH |
+| Snowflake not activating | Check binary at `src/azadiconnect/resources/snowflake-client` |
+| Connection timeout | Tor can take 30-60 seconds; check internet |
+| File transfer fails | Max size ~7MB; check console for errors |
 
-* **Linux:** `.AppImage` (portable)
-* **Windows:** `.msi` installer
-* **macOS:** `.dmg` disk image (Signed if secrets are present, otherwise ad-hoc)
-* **Android:** Debug `.apk`
-* **iOS:** `.ipa` (if signed) or Xcode archive `.tar.gz` (unsigned)
+---
 
-## ⚠️ Important: Linux AppImage Configuration
+## Security
 
-Creating a portable AppImage for GTK apps requires a specific balance between the Build OS version and the Python Library versions.
+### What's Protected
 
-The working configuration in `pyproject.toml` uses **manylinux_2_34** (AlmaLinux 9) to provide modern GLib (2.68+), while strictly pinning `pygobject` to avoid the bleeding-edge `girepository-2.0` requirement.
+- **Identity**: IP hidden via Tor onion routing
+- **Transport**: Encrypted by Tor Hidden Services (v3)
+- **Communication**: Only peers can read messages
 
-**Do not change these versions unless you verify compatibility:**
+### What's NOT Protected (MVP Limitations)
 
-```toml
-[tool.briefcase.app.helloworld.linux]
-requires = [
-    "toga-gtk>=0.4.0,<0.4.5",       # Stable Toga series
-    "pygobject>=3.46.0,<3.48.0",    # Pinned to support GLib 2.68 but avoid girepository-2.0
-]
+- Local data is memory-only (not persisted)
+- No public key verification between peers
+- Forward secrecy relies on Tor transport
 
-[tool.briefcase.app.helloworld.linux.appimage]
-manylinux = "manylinux_2_34"        # AlmaLinux 9 build environment
-system_requires = [
-    "fuse-libs",                    # Red Hat package name (not libfuse2)
-    "cairo-devel",
-    "cairo-gobject-devel",
-    "gobject-introspection-devel",
-]
+### Best Practices
 
-```
+1. Verify peer's `.onion` address through a secure channel
+2. Don't share your `.onion` address publicly
+3. Keep Tor and Snowflake binaries updated
 
-## Code Signing & Secrets
-
-To enable production-grade signing in GitHub Actions, configure the following secrets in **Settings > Secrets and variables > Actions**:
-
-| Secret Name | Description |
-| --- | --- |
-| `APPLE_DEVELOPER_ID_CERTIFICATE` | Base64-encoded `.p12` certificate file. |
-| `APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD` | Password for the `.p12` file. |
-| `APPLE_DEVELOPER_ID` | Your Apple Developer ID (e.g., `Developer ID Application: Name (ID)`). |
-| `KEYCHAIN_PASSWORD` | A random string used to secure the temporary CI keychain. |
-| `APPLE_TEAM_ID` | Your 10-character Apple Team ID (required for iOS). |
-
-*Without these secrets, macOS builds will be ad-hoc signed (requiring manual Gatekeeper override) and iOS builds will produce an unsigned Xcode archive.*
+---
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+BSD 3-Clause License. See [LICENSE](LICENSE) file.
+
+---
+
+## Disclaimer
+
+This software is provided for educational and research purposes. It is designed to enable secure communication in restricted environments. The developers are not responsible for misuse of this software. Use responsibly and in accordance with applicable laws.
+
+---
+
+**Made with ❤️ for freedom of communication**
