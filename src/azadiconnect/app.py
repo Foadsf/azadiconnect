@@ -83,8 +83,14 @@ class AzadiConnect(toga.App):
             style=Pack(padding=5, width=80)
         )
         
+        self.attach_button = toga.Button(
+            self.lang.get("attach_file"),
+            on_press=self._on_attach_file,
+            style=Pack(padding=5, width=50)
+        )
+        
         input_box = toga.Box(
-            children=[self.message_input, self.send_button],
+            children=[self.attach_button, self.message_input, self.send_button],
             style=Pack(direction=ROW, padding=5)
         )
         
@@ -286,6 +292,25 @@ class AzadiConnect(toga.App):
         
         # Send via network
         self.network.send_message(self._mock_peer_address, text)
+    
+    async def _on_attach_file(self, widget):
+        """Handle attach file button press."""
+        try:
+            file_path = await self.main_window.open_file_dialog(
+                title="Select file to send",
+                multiple_select=False
+            )
+            
+            if file_path:
+                # Add feedback message to UI
+                filename = file_path.name if hasattr(file_path, 'name') else str(file_path).split('/')[-1]
+                self.add_message_to_ui(f"{self.lang.get('sending_file')}{filename}", is_me=True)
+                
+                # Send file via network
+                self.network.send_file(self._mock_peer_address, file_path)
+                
+        except Exception as e:
+            print(f"[App] File dialog error: {e}")
     
     def _on_message_received(self, message: Message):
         """Callback when a message is received from the network."""

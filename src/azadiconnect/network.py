@@ -1,8 +1,10 @@
 """
 NetworkManager - Handles P2P network communication.
 Integrates with TorManager for Tor connectivity and P2PService for messaging.
+Supports text messages and file transfers.
 """
 import asyncio
+import base64
 from typing import Callable, Optional
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -28,11 +30,13 @@ class Message:
     text: str
     sender_address: str
     is_encrypted: bool = False
+    is_file: bool = False
+    filename: Optional[str] = None
     timestamp: Optional[float] = None
 
 
 class NetworkManager:
-    """Manages network communication for P2P messaging."""
+    """Manages network communication for P2P messaging and file transfer."""
     
     def __init__(self, app, data_path: Path):
         """
@@ -44,9 +48,13 @@ class NetworkManager:
         """
         self._app = app
         self._data_path = Path(data_path)
-        self._mock_mode = False  # Default to real mode, fallback to mock if Tor fails
+        self._downloads_path = self._data_path / "downloads"
+        self._mock_mode = False
         self._state = ConnectionState.DISCONNECTED
         self._status_message = "Disconnected"
+        
+        # Create downloads directory
+        self._downloads_path.mkdir(parents=True, exist_ok=True)
         
         # Tor manager
         self._tor_manager = TorManager(self._data_path)
@@ -55,7 +63,7 @@ class NetworkManager:
         
         # P2P service (initialized when we know the SOCKS port)
         self._p2p_service: Optional[P2PService] = None
-        self._p2p_local_port = 8080  # Tor Hidden Service forwards to this
+        self._p2p_local_port = 8080
         
         # Callbacks
         self._on_message_received: Optional[Callable[[Message], None]] = None
@@ -63,6 +71,10 @@ class NetworkManager:
         
         # Message log
         self._message_log: list[Message] = []
+    
+    def get_downloads_path(self) -> Path:
+        """Get the downloads directory path."""
+        return self._downloads_path
     
     def set_message_callback(self, callback: Callable[[Message], None]) -> None:
         """Set callback to be called when a message is received."""
@@ -123,11 +135,12 @@ class NetworkManager:
         
         self._set_state(ConnectionState.STARTING_P2P, "Starting P2P service...")
         
-        # Create P2P service
+        # Create P2P service with downloads path
         self._p2p_service = P2PService(
             local_port=self._p2p_local_port,
             socks_port=socks_port,
-            msg_callback=self._on_p2p_message
+            msg_callback=self._on_p2p_message,
+            downloads_path=self._downloads_path
         )
         
         # Start the server
@@ -142,10 +155,14 @@ class NetworkManager:
     def _on_p2p_message(self, p2p_msg: P2PMessage) -> None:
         """Handle incoming P2P messages."""
         # Convert to Message object
+        is_file = p2p_msg.msg_type == 'file'
+        
         message = Message(
             text=p2p_msg.text,
             sender_address=p2p_msg.sender,
-            is_encrypted=False  # TODO: Add encryption handling
+            is_encrypted=False,
+            is_file=is_file,
+            filename=p2p_msg.filename if is_file else None
         )
         
         self._message_log.append(message)
@@ -165,21 +182,16 @@ class NetworkManager:
         )
     
     def connect(self) -> None:
-        """
-        Start the network connection.
-        Attempts Tor, falls back to mock mode on failure.
-        """
+        """Start the network connection."""
         self._set_state(ConnectionState.STARTING_TOR, "Initializing Tor...")
         self._tor_manager.start()
     
     def disconnect(self) -> None:
         """Stop the network connection."""
-        # Stop P2P service
         if self._p2p_service:
             asyncio.create_task(self._p2p_service.stop_server())
             self._p2p_service = None
         
-        # Stop Tor
         self._tor_manager.stop()
         self._set_state(ConnectionState.DISCONNECTED, "Disconnected")
     
@@ -231,6 +243,7 @@ class NetworkManager:
             return False
         
         payload = {
+            'type': 'text',
             'text': message,
             'sender': self.get_my_address() or 'unknown'
         }
@@ -238,13 +251,23 @@ class NetworkManager:
         success = await self._p2p_service.send_message(peer_address, payload)
         return success
     
+    async def _send_real_file(self, peer_address: str, file_path: Path) -> bool:
+        """Send a file via the real P2P service."""
+        if not self._p2p_service:
+            print("[NetworkManager] P2P service not available")
+            return False
+        
+        sender = self.get_my_address() or 'unknown'
+        success = await self._p2p_service.send_file(peer_address, file_path, sender)
+        return success
+    
     def send_message(self, peer_address: str, message: str) -> bool:
         """
-        Send a message to a peer.
+        Send a text message to a peer.
         
         Args:
             peer_address: The peer's onion address
-            message: The message text (should be pre-encrypted)
+            message: The message text
             
         Returns:
             True if message was sent (or queued)
@@ -258,14 +281,59 @@ class NetworkManager:
         print(f"[NetworkManager] Sending to {peer_address}: {message[:50]}...")
         
         if self._mock_mode or not self._p2p_service:
-            # Mock mode: schedule a simulated reply
             async def do_mock_reply(app):
                 await self._simulate_reply(message, peer_address)
             self._app.add_background_task(do_mock_reply)
             return True
         else:
-            # Real mode: send via P2P service
             async def do_send(app):
                 await self._send_real_message(peer_address, message)
             self._app.add_background_task(do_send)
+            return True
+    
+    def send_file(self, peer_address: str, file_path: Path) -> bool:
+        """
+        Send a file to a peer.
+        
+        Args:
+            peer_address: The peer's onion address
+            file_path: Path to the file to send
+            
+        Returns:
+            True if file send was initiated
+        """
+        file_path = Path(file_path)
+        if not file_path.exists():
+            print(f"[NetworkManager] File not found: {file_path}")
+            return False
+        
+        # Log outgoing file message
+        outgoing = Message(
+            text=f"Sending file: {file_path.name}",
+            sender_address=self.get_my_address() or "unknown",
+            is_file=True,
+            filename=file_path.name
+        )
+        self._message_log.append(outgoing)
+        print(f"[NetworkManager] Sending file {file_path.name} to {peer_address}")
+        
+        if self._mock_mode or not self._p2p_service:
+            # Mock mode: simulate file send success
+            async def do_mock_file_reply(app):
+                await asyncio.sleep(1.0)
+                reply = Message(
+                    text=f"File received: {file_path.name}",
+                    sender_address=peer_address,
+                    is_file=True,
+                    filename=file_path.name
+                )
+                self._message_log.append(reply)
+                if self._on_message_received:
+                    self._on_message_received(reply)
+            self._app.add_background_task(do_mock_file_reply)
+            return True
+        else:
+            async def do_send_file(app):
+                await self._send_real_file(peer_address, file_path)
+            self._app.add_background_task(do_send_file)
             return True

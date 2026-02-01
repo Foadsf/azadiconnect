@@ -170,16 +170,30 @@ class TorManager:
                 'CookieAuthentication': '1',
                 # Reduce logging for cleaner output
                 'Log': 'notice stdout',
-                
-                # ==============================================================
-                # SNOWFLAKE PLUGGABLE TRANSPORT (PLACEHOLDER)
-                # Uncomment and configure when Snowflake binary is bundled:
-                # 
-                # 'UseBridges': '1',
-                # 'ClientTransportPlugin': 'snowflake exec /path/to/snowflake-client',
-                # 'Bridge': 'snowflake 192.0.2.3:80 ...',
-                # ==============================================================
             }
+            
+            # ==============================================================
+            # SNOWFLAKE PLUGGABLE TRANSPORT
+            # Enable Snowflake for censorship circumvention
+            # Requires snowflake-client binary in resources/
+            # ==============================================================
+            snowflake_path = self._work_path.parent / 'resources' / 'snowflake-client'
+            if snowflake_path.exists():
+                print(f"[TorManager] Enabling Snowflake transport: {snowflake_path}")
+                tor_config.update({
+                    'UseBridges': '1',
+                    'ClientTransportPlugin': f'snowflake exec {snowflake_path}',
+                    'Bridge': 'snowflake 192.0.2.3:1 2B280B23E1107BB62ABFC40DDCC8824814F80A72 '
+                              'fingerprint=2B280B23E1107BB62ABFC40DDCC8824814F80A72 '
+                              'url=https://snowflake-broker.torproject.net.front/ '
+                              'front=cdn.sstatic.net '
+                              'ice=stun:stun.l.google.com:19302,stun:stun.voip.blackberry.com:3478,'
+                              'stun:stun.altar.com.pl:3478,stun:stun.antisip.com:3478,'
+                              'stun:stun.bluesip.net:3478,stun:stun.dus.net:3478,'
+                              'stun:stun.framasoft.org:3478,stun:stun.services.mozilla.com:3478'
+                })
+            else:
+                print(f"[TorManager] Snowflake not available at {snowflake_path}, using direct connection")
             
             # Bootstrap progress callback
             def bootstrap_callback(line: str):
