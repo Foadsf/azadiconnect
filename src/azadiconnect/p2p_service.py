@@ -66,10 +66,13 @@ class P2PService:
             True if server started successfully
         """
         try:
+            # limit=10MB to support Base64-encoded file transfers
+            # Default asyncio limit is 64KB which is too small for files
             self._server = await asyncio.start_server(
                 self._handle_client,
                 '127.0.0.1',
-                self._local_port
+                self._local_port,
+                limit=10 * 1024 * 1024  # 10MB buffer limit
             )
             self._running = True
             print(f"[P2PService] Server listening on 127.0.0.1:{self._local_port}")

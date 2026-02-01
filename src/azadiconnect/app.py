@@ -86,7 +86,8 @@ class AzadiConnect(toga.App):
         self.attach_button = toga.Button(
             self.lang.get("attach_file"),
             on_press=self._on_attach_file,
-            style=Pack(padding=5, width=50)
+            style=Pack(padding=5, width=50),
+            enabled=False  # Disabled until network is ready
         )
         
         input_box = toga.Box(
@@ -321,13 +322,19 @@ class AzadiConnect(toga.App):
         # Update status label
         self.status_label.text = message
         
-        # Update onion address if ready
+        # Update onion address and enable/disable controls based on state
         if state == ConnectionState.READY:
             address = self.network.get_my_address()
             if address:
                 self.onion_address_label.text = address
             else:
                 self.onion_address_label.text = self.lang.get("mock_mode")
+            
+            # Enable file attach button when ready
+            self.attach_button.enabled = True
+        else:
+            # Disable file attach button when not ready
+            self.attach_button.enabled = False
     
     def _on_copy_address(self, widget):
         """Copy onion address to clipboard."""

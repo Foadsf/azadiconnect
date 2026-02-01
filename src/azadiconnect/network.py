@@ -2,6 +2,13 @@
 NetworkManager - Handles P2P network communication.
 Integrates with TorManager for Tor connectivity and P2PService for messaging.
 Supports text messages and file transfers.
+
+SECURITY NOTE:
+End-to-end encryption is provided by the Tor Hidden Service protocol (v3 onions).
+All traffic between peers is encrypted at the transport layer by Tor.
+Application-layer encryption (CryptoManager with ECC/Fernet) is available for
+future enhancements such as Perfect Forward Secrecy (PFS) and offline message
+signing. For this MVP, we rely on Tor's built-in encryption.
 """
 import asyncio
 import base64
