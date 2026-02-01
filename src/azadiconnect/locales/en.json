@@ -7,5 +7,9 @@
   "no_chats": "No conversations yet",
   "add_contact": "Add Contact",
   "english": "English",
-  "farsi": "فارسی"
+  "farsi": "فارسی",
+  "send": "Send",
+  "type_message": "Type a message...",
+  "connection_status": "Connection Status",
+  "mock_mode": "Mock Mode (Simulated)"
 }

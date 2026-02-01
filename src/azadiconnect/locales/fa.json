@@ -8,5 +8,9 @@
     "no_chats": "هنوز گفتگویی وجود ندارد",
     "add_contact": "افزودن مخاطب",
     "english": "English",
-    "farsi": "فارسی"
+    "farsi": "فارسی",
+    "send": "ارسال",
+    "type_message": "پیام خود را بنویسید...",
+    "connection_status": "وضعیت اتصال",
+    "mock_mode": "حالت شبیه‌سازی"
 }

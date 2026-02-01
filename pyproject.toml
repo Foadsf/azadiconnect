@@ -40,7 +40,7 @@ Features end-to-end encryption, Tor integration, and bilingual (English/Farsi) s
 sources = ["src/azadiconnect"]
 test_sources = ["tests"]
 # Common requirements empty to avoid platform conflicts
-requires = []
+requires = ["cryptography"]
 
 # =============================================================================
 # Linux Configuration
