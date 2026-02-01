@@ -62,7 +62,7 @@ jobs:
         run: |
           APPIMAGE=$(find dist -name "*.AppImage" -type f | head -1)
           if [ -n "$APPIMAGE" ]; then
-            NEWNAME="HelloWorld-linux-x86_64.AppImage"
+            NEWNAME="AzadiConnect-linux-x86_64.AppImage"
             cp "$APPIMAGE" "dist/$NEWNAME"
             echo "path=dist/$NEWNAME" >> $GITHUB_OUTPUT
             echo "name=$NEWNAME" >> $GITHUB_OUTPUT
@@ -112,7 +112,7 @@ jobs:
         run: |
           $msi = Get-ChildItem -Path dist -Filter "*.msi" -Recurse | Select-Object -First 1
           if ($msi) {
-            $newName = "HelloWorld-windows-x64.msi"
+            $newName = "AzadiConnect-windows-x64.msi"
             Copy-Item $msi.FullName -Destination "dist\$newName"
             "path=dist\$newName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
             "name=$newName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
@@ -191,7 +191,7 @@ jobs:
         run: |
           DMG=$(find dist -name "*.dmg" | head -1)
           [ -z "$DMG" ] && echo "No DMG found" && exit 1
-          NEWNAME="HelloWorld-macOS-universal.dmg"
+          NEWNAME="AzadiConnect-macOS-universal.dmg"
           cp "$DMG" "dist/$NEWNAME"
           echo "path=dist/$NEWNAME" >> $GITHUB_OUTPUT
       - uses: actions/upload-artifact@v4
@@ -244,7 +244,7 @@ jobs:
             APK=$(find . -name "*.apk" -type f | head -1)
           fi
           if [ -n "$APK" ]; then
-            NEWNAME="HelloWorld-android-debug.apk"
+            NEWNAME="AzadiConnect-android-debug.apk"
             mkdir -p dist
             cp "$APK" "dist/$NEWNAME"
             echo "path=dist/$NEWNAME" >> $GITHUB_OUTPUT
@@ -291,15 +291,15 @@ jobs:
             echo "Building only (no signing). Create .ipa manually in Xcode or set up secrets."
             # Archive the build directory for manual signing
             mkdir -p dist
-            tar -czf dist/HelloWorld-iOS-build.tar.gz build/helloworld/ios/xcode/
+            tar -czf dist/AzadiConnect-iOS-build.tar.gz build/azadiconnect/ios/xcode/
           else
             # Production build with signing (requires provisioning profile)
             briefcase package iOS --team-id "$TEAM_ID"
           fi
       - id: artifact
         run: |
-          if [ -f "dist/HelloWorld-iOS-build.tar.gz" ]; then
-            echo "path=dist/HelloWorld-iOS-build.tar.gz" >> $GITHUB_OUTPUT
+          if [ -f "dist/AzadiConnect-iOS-build.tar.gz" ]; then
+            echo "path=dist/AzadiConnect-iOS-build.tar.gz" >> $GITHUB_OUTPUT
           else
             IPA=$(find dist -name "*.ipa" | head -1)
             echo "path=$IPA" >> $GITHUB_OUTPUT
