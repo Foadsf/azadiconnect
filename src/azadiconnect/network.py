@@ -190,9 +190,43 @@ class NetworkManager:
             try:
                 import json
                 enc_payload = json.loads(text)
-                text = self._crypto_manager.decrypt_from_peer(enc_payload)
+                decrypted_text = self._crypto_manager.decrypt_from_peer(enc_payload)
+                text = decrypted_text
                 is_encrypted = True
                 print(f"[NetworkManager] Decrypted message from {p2p_msg.sender}")
+                
+                # Check for inner file payload
+                try:
+                    inner_payload = json.loads(decrypted_text)
+                    if isinstance(inner_payload, dict) and inner_payload.get('type') == 'file':
+                        is_file = True
+                        filename = inner_payload.get('name', 'unknown_file')
+                        content_b64 = inner_payload.get('content')
+                        
+                        # Decode and Save
+                        if content_b64:
+                            file_content = base64.b64decode(content_b64)
+                            # Save logic (similar to P2PService but here)
+                            if self._downloads_path:
+                                safe_name = "".join(c for c in filename if c.isalnum() or c in '._-') or "received_file"
+                                save_path = self._downloads_path / safe_name
+                                
+                                # Avoid overwriting
+                                counter = 1
+                                original_path = save_path
+                                while save_path.exists():
+                                    stem = original_path.stem
+                                    suffix = original_path.suffix
+                                    save_path = original_path.parent / f"{stem}_{counter}{suffix}"
+                                    counter += 1
+                                
+                                save_path.write_bytes(file_content)
+                                print(f"[NetworkManager] Saved encrypted file to {save_path}")
+                                text = f"File received: {filename}"
+                                filename = save_path.name # Update with saved name
+                except json.JSONDecodeError:
+                    pass # Not JSON, treat as plain text
+
             except Exception as e:
                 print(f"[NetworkManager] Decryption failed: {e}")
                 text = "[Encrypted Message - Key Mismatch]"
@@ -202,7 +236,7 @@ class NetworkManager:
             sender_address=p2p_msg.sender,
             is_encrypted=is_encrypted,
             is_file=is_file,
-            filename=p2p_msg.filename if is_file else None,
+            filename=filename if is_file else p2p_msg.filename if is_file else None,
             timestamp=datetime.now(timezone.utc).timestamp(),
             is_outgoing=False
         )
@@ -329,14 +363,57 @@ class NetworkManager:
         return success
     
     async def _send_real_file(self, peer_address: str, file_path: Path) -> bool:
-        """Send a file via the real P2P service."""
+        """
+        Send a file via the real P2P service (encrypted if possible).
+        """
         if not self._p2p_service:
             print("[NetworkManager] P2P service not available")
             return False
         
-        sender = self.get_my_address() or 'unknown'
-        success = await self._p2p_service.send_file(peer_address, file_path, sender)
-        return success
+        try:
+            # Read and encode file
+            file_content = file_path.read_bytes()
+            content_b64 = base64.b64encode(file_content).decode('utf-8')
+            
+            # Construct inner payload
+            inner_payload = {
+                'type': 'file',
+                'name': file_path.name,
+                'content': content_b64,
+                'sender': self.get_my_address() or 'unknown'
+            }
+            
+            payload_to_send = inner_payload
+            
+            # Check encryption
+            is_encrypted = False
+            if self._contact_manager and self._crypto_manager:
+                contact = self._contact_manager.get_contact(peer_address)
+                if contact and contact.public_key:
+                    try:
+                        import json
+                        inner_json = json.dumps(inner_payload)
+                        peer_pub_pem = contact.public_key.encode('utf-8')
+                        enc_data = self._crypto_manager.encrypt_for_peer(inner_json, peer_pub_pem)
+                        
+                        # Encrypted payload wrapper
+                        payload_to_send = {
+                            'type': 'encrypted',
+                            'text': json.dumps(enc_data),
+                            'sender': self.get_my_address() or 'unknown'
+                        }
+                        is_encrypted = True
+                        print(f"[NetworkManager] Encrypted file for {contact.name}")
+                    except Exception as e:
+                        print(f"[NetworkManager] File encryption failed: {e}")
+                        # Fallback to plaintext inner_payload
+            
+            # Call P2P Service send_message (it handles dict serialization)
+            return await self._p2p_service.send_message(peer_address, payload_to_send)
+            
+        except Exception as e:
+            print(f"[NetworkManager] Send file error: {e}")
+            return False
     
     def send_message(self, peer_address: str, message: str) -> bool:
         """

@@ -11,6 +11,8 @@ from .contacts import ContactManager, Contact
 from .network import NetworkManager, ConnectionState
 from .message import Message
 from .crypto import CryptoManager
+import asyncio
+from cryptography.hazmat.primitives import serialization
 
 
 class AzadiConnect(toga.App):
@@ -203,6 +205,14 @@ class AzadiConnect(toga.App):
             pubkey = pubkey_input.value.strip() or None
             
             if name and addr:
+                # Validate Public Key
+                if pubkey:
+                    try:
+                        serialization.load_pem_public_key(pubkey.encode('utf-8'))
+                    except ValueError:
+                        self.main_window.error_dialog("Error", "Invalid Public Key format")
+                        return
+
                 if self.contacts.add_contact(name, addr, public_key=pubkey):
                     self._refresh_contact_list()
                     self.add_contact_window.close()
@@ -236,7 +246,34 @@ class AzadiConnect(toga.App):
             data.append((contact.name, contact.onion_address))
         self.contact_table.data = data
         
-    async def _on_select_contact(self, widget, row):
+    async def _load_contact_history(self, app, contact):
+        """Load chat history in background."""
+        # Clear old messages
+        if hasattr(self.message_list, 'clear'):
+            self.message_list.clear()
+        else:
+            for child in list(self.message_list.children):
+                self.message_list.remove(child)
+        self._message_widgets = []
+        
+        # Update status
+        conn_status = self.network.get_connection_status()
+        self._on_connection_status_change(ConnectionState.READY, conn_status)
+        
+        # Load history
+        try:
+            messages = await self.network.db.get_history(contact.onion_address, limit=50)
+            for msg in messages:
+                # Identify if me (outgoing) or them
+                is_me = (msg.sender_address == self.network.get_my_address())
+                if hasattr(msg, 'is_outgoing'):
+                     is_me = msg.is_outgoing
+                
+                self.add_message_to_ui(msg.text, is_me=is_me)
+        except Exception as e:
+            print(f"Error loading history: {e}")
+
+    def _on_select_contact(self, widget, row):
         """Handle contact selection."""
         # row[1] is the onion address
         addr = row[1]
@@ -245,68 +282,14 @@ class AzadiConnect(toga.App):
             self.current_peer = contact
             self.chat_header_label.text = contact.display_name
             
-            # Clear old messages
-            if hasattr(self.message_list, 'clear'):
-                self.message_list.clear() # Toga main branch has clear()
-            else:
-                for child in list(self.message_list.children):
-                    self.message_list.remove(child)
-            self._message_widgets = []
-            
-            # Load history
-            try:
-                history = await self.network.db.get_history(contact.onion_address, limit=50)
-                for msg in history:
-                    # Determine if message is from me or them
-                    # In network.db, sender_address is stored.
-                    # We compare with our address? Or DB stores is_outgoing?
-                    # My DB schema has 'is_outgoing' field.
-                    # In get_history, I reconstructed Message object.
-                    # NetworkManager.get_history returns Message objects.
-                    # Message object doesn't have is_outgoing field in definition?
-                    # Wait, I added it in network.py Message definition update?
-                    # Yes, updated Message dataclass to add is_outgoing.
-                    # But get_history returned Message objects.
-                    
-                    # Need to verify if Message dataclass has is_outgoing in DB.py get_history.
-                    # DB.py get_history:
-                    # msg = Message(..., is_outgoing=False) -> Wait, I hardcoded False?
-                    # No, I should use row['is_outgoing'].
-                    # Let's check DB.py again.
-                    pass # Handled by check below
-                    
-                # Fix: Message object might not have is_outgoing populated correctly by get_history?
-                # Actually, I should check DB.py again.
-                    
-            except Exception as e:
-                print(f"Error loading history: {e}")
-
             # Switch view
             self.chats_box.remove(self.contact_list_container)
             self.chats_box.add(self.chat_view_container)
             
-            # Update status
-            conn_status = self.network.get_connection_status()
-            self._on_connection_status_change(ConnectionState.READY, conn_status)
-            
-            # Load history (actual)
-            messages = await self.network.db.get_history(contact.onion_address, limit=50)
-            for msg in messages:
-                # Identify if me (outgoing) or them
-                # DB stores is_outgoing bool.
-                # But Message object structure in network.py needs to hold it?
-                # I added is_outgoing to Message dataclass in network.py previously.
-                # db.py get_history likely needs update if I didn't set it.
-                
-                # Assuming I'll fix db.py if needed.
-                # For now rely on sender address comparison
-                my_addr = self.network.get_my_address()
-                is_me = (msg.sender_address == my_addr)
-                # Fallback to msg.is_outgoing if set (I added it to dataclass)
-                if hasattr(msg, 'is_outgoing'):
-                     is_me = msg.is_outgoing
-                
-                self.add_message_to_ui(msg.text, is_me=is_me)
+            # Load history in background
+            async def do_load(app):
+                await self._load_contact_history(app, contact)
+            self.add_background_task(do_load)
 
     def _on_back_to_contacts(self, widget):
         """Return to contact list."""

@@ -193,7 +193,7 @@ class P2PService:
                 print(f"[P2PService] Received text from {sender}: {text[:50]}...")
                 
                 message = P2PMessage(
-                    msg_type='text',
+                    msg_type=msg_type,
                     text=text,
                     sender=sender,
                     raw_data=payload

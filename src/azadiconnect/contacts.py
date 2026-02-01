@@ -7,6 +7,8 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime, timezone
+import tempfile
+import os
 
 ONION_ADDRESS_REGEX = re.compile(r'^[a-z2-7]{56}\.onion$')
 
@@ -60,12 +62,28 @@ class ContactManager:
             # Keep empty dict if corrupted
     
     def _save_contacts(self) -> None:
-        """Save contacts to disk."""
+        """Save contacts to disk atomically."""
         try:
             data = {addr: asdict(contact) for addr, contact in self._contacts.items()}
-            self._contacts_file.write_text(json.dumps(data, indent=2))
+            json_str = json.dumps(data, indent=2)
+            
+            # Atomic write: write to temp file then rename
+            # Create temp file in the same directory to ensure same filesystem
+            with tempfile.NamedTemporaryFile('w', dir=self._data_path, delete=False) as tf:
+                tf.write(json_str)
+                temp_path = tf.name
+            
+            # Set permissions 600
+            os.chmod(temp_path, 0o600)
+            
+            # Atomic replace
+            os.replace(temp_path, self._contacts_file)
+            
         except Exception as e:
             print(f"[ContactManager] Failed to save contacts: {e}")
+            # Try to cleanup temp file if it exists
+            if 'temp_path' in locals() and os.path.exists(temp_path):
+                os.unlink(temp_path)
     
     def add_contact(self, name: str, onion_address: str, public_key: Optional[str] = None) -> bool:
         """
