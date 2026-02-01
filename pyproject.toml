@@ -4,7 +4,7 @@ build-backend = "briefcase.integrations.setuptools"
 
 [project]
 name = "azadiconnect"
-version = "0.3.2"
+version = "0.3.3"
 description = "Secure P2P censorship-resistant chat for users in Iran"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -25,7 +25,7 @@ Homepage = "https://github.com/azadiconnect/azadiconnect"
 [tool.briefcase]
 project_name = "AzadiConnect"
 bundle = "org.azadiconnect"
-version = "0.3.2"
+version = "0.3.3"
 url = "https://github.com/azadiconnect/azadiconnect"
 license.file = "LICENSE"
 author = "AzadiConnect Team"
@@ -49,7 +49,7 @@ requires = ["cryptography", "aiosqlite"]
 [tool.briefcase.app.azadiconnect.linux]
 requires = [
     # Pin Toga to the stable 0.4.x series
-    "toga-gtk>=0.4.5",
+    "toga-gtk>=0.4.6",
     
     # CRITICAL FIX: 
     # 1. Must be >= 3.46.0 to satisfy Toga 0.4.4
