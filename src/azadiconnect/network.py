@@ -1,6 +1,6 @@
 """
 NetworkManager - Handles P2P network communication.
-Integrates with TorManager for real Tor connections.
+Integrates with TorManager for Tor connectivity and P2PService for messaging.
 """
 import asyncio
 from typing import Callable, Optional
@@ -9,6 +9,7 @@ from enum import Enum, auto
 from pathlib import Path
 
 from .tor_manager import TorManager, TorState
+from .p2p_service import P2PService, P2PMessage
 
 
 class ConnectionState(Enum):
@@ -16,6 +17,7 @@ class ConnectionState(Enum):
     DISCONNECTED = auto()
     STARTING_TOR = auto()
     CREATING_SERVICE = auto()
+    STARTING_P2P = auto()
     READY = auto()
     ERROR = auto()
 
@@ -51,6 +53,10 @@ class NetworkManager:
         self._tor_manager.set_state_callback(self._on_tor_state_change)
         self._tor_manager.set_bootstrap_callback(self._on_bootstrap_progress)
         
+        # P2P service (initialized when we know the SOCKS port)
+        self._p2p_service: Optional[P2PService] = None
+        self._p2p_local_port = 8080  # Tor Hidden Service forwards to this
+        
         # Callbacks
         self._on_message_received: Optional[Callable[[Message], None]] = None
         self._on_status_change: Optional[Callable[[ConnectionState, str], None]] = None
@@ -85,11 +91,10 @@ class NetworkManager:
             TorState.STARTING_TOR: ConnectionState.STARTING_TOR,
             TorState.BOOTSTRAPPING: ConnectionState.STARTING_TOR,
             TorState.CREATING_SERVICE: ConnectionState.CREATING_SERVICE,
-            TorState.READY: ConnectionState.READY,
+            TorState.READY: ConnectionState.STARTING_P2P,
             TorState.ERROR: ConnectionState.ERROR,
         }
         new_state = state_map.get(tor_state, ConnectionState.ERROR)
-        self._set_state(new_state, message)
         
         # If Tor failed, fall back to mock mode
         if tor_state == TorState.ERROR:
@@ -98,6 +103,59 @@ class NetworkManager:
                 ConnectionState.READY,
                 f"Mock Mode (Tor error: {message})"
             )
+            return
+        
+        self._set_state(new_state, message)
+        
+        # When Tor is ready, start the P2P service
+        if tor_state == TorState.READY:
+            async def start_p2p(app):
+                await self._start_p2p_service()
+            self._app.add_background_task(start_p2p)
+    
+    async def _start_p2p_service(self) -> None:
+        """Initialize and start the P2P service."""
+        socks_port = self._tor_manager.get_socks_port()
+        if not socks_port:
+            self._set_state(ConnectionState.ERROR, "SOCKS port not available")
+            self._mock_mode = True
+            return
+        
+        self._set_state(ConnectionState.STARTING_P2P, "Starting P2P service...")
+        
+        # Create P2P service
+        self._p2p_service = P2PService(
+            local_port=self._p2p_local_port,
+            socks_port=socks_port,
+            msg_callback=self._on_p2p_message
+        )
+        
+        # Start the server
+        success = await self._p2p_service.start_server()
+        if success:
+            onion = self._tor_manager.get_onion_address()
+            self._set_state(ConnectionState.READY, f"Connected: {onion}")
+        else:
+            self._set_state(ConnectionState.ERROR, "P2P server failed to start")
+            self._mock_mode = True
+    
+    def _on_p2p_message(self, p2p_msg: P2PMessage) -> None:
+        """Handle incoming P2P messages."""
+        # Convert to Message object
+        message = Message(
+            text=p2p_msg.text,
+            sender_address=p2p_msg.sender,
+            is_encrypted=False  # TODO: Add encryption handling
+        )
+        
+        self._message_log.append(message)
+        
+        # Trigger the UI callback
+        if self._on_message_received:
+            try:
+                self._on_message_received(message)
+            except Exception as e:
+                print(f"[NetworkManager] Message callback error: {e}")
     
     def _on_bootstrap_progress(self, progress: int) -> None:
         """Handle Tor bootstrap progress."""
@@ -116,6 +174,12 @@ class NetworkManager:
     
     def disconnect(self) -> None:
         """Stop the network connection."""
+        # Stop P2P service
+        if self._p2p_service:
+            asyncio.create_task(self._p2p_service.stop_server())
+            self._p2p_service = None
+        
+        # Stop Tor
         self._tor_manager.stop()
         self._set_state(ConnectionState.DISCONNECTED, "Disconnected")
     
@@ -160,6 +224,20 @@ class NetworkManager:
         if self._on_message_received:
             self._on_message_received(reply_message)
     
+    async def _send_real_message(self, peer_address: str, message: str) -> bool:
+        """Send a message via the real P2P service."""
+        if not self._p2p_service:
+            print("[NetworkManager] P2P service not available")
+            return False
+        
+        payload = {
+            'text': message,
+            'sender': self.get_my_address() or 'unknown'
+        }
+        
+        success = await self._p2p_service.send_message(peer_address, payload)
+        return success
+    
     def send_message(self, peer_address: str, message: str) -> bool:
         """
         Send a message to a peer.
@@ -169,7 +247,7 @@ class NetworkManager:
             message: The message text (should be pre-encrypted)
             
         Returns:
-            True if message was sent (or queued for mock)
+            True if message was sent (or queued)
         """
         outgoing = Message(
             text=message,
@@ -179,16 +257,15 @@ class NetworkManager:
         self._message_log.append(outgoing)
         print(f"[NetworkManager] Sending to {peer_address}: {message[:50]}...")
         
-        if self._mock_mode:
-            # In mock mode, schedule a simulated reply
-            self._app.add_background_task(
-                lambda app: self._simulate_reply(message, peer_address)
-            )
+        if self._mock_mode or not self._p2p_service:
+            # Mock mode: schedule a simulated reply
+            async def do_mock_reply(app):
+                await self._simulate_reply(message, peer_address)
+            self._app.add_background_task(do_mock_reply)
             return True
         else:
-            # TODO: Send via Tor SOCKS proxy
-            # For now, fall back to mock behavior
-            self._app.add_background_task(
-                lambda app: self._simulate_reply(message, peer_address)
-            )
+            # Real mode: send via P2P service
+            async def do_send(app):
+                await self._send_real_message(peer_address, message)
+            self._app.add_background_task(do_send)
             return True
